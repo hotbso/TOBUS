@@ -47,6 +47,46 @@ if nil ~= XPLMFindDataRef("opensam/jetway/door/status") then
 	opensam_door_status = dataref_table("opensam/jetway/door/status")
 end
 
+local A320_cg_data = {}
+A320_cg_data.pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188}
+A320_cg_data.zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2}
+A320_cg_data.zfwcg_050 = {29.5, 29.4, 29.4, 29.3, 29.3, 29.3, 29.3, 29.2, 29.2}
+A320_cg_data.zfwcg_060 = {29.5, 32.1, 33.7, 34.4, 34.3, 33.6, 32.2, 30.5, 29.2}
+
+-- stepwise linear interpolation
+local function tab_interpolate(pax_tab, zfwcg_tab, pax_no)
+    local cg
+    for i = 1, #pax_tab - 1 do
+        local pax0 = pax_tab[i]
+        local pax1 = pax_tab[i + 1]
+        if pax0 <= pax_no and pax_no <= pax1 then
+            local x = (pax_no - pax0) / (pax1 - pax0)
+            return zfwcg_tab[i] + x * (zfwcg_tab[i + 1] - zfwcg_tab[i])
+        end
+    end
+end
+
+-- get the ZFWCG
+local function get_zfwcg(cg_data)
+    local pax_distrib = get("AirbusFBW/PaxDistrib")
+    local pax_no = get("AirbusFBW/NoPax")
+
+    local zfwcg_050 = tab_interpolate(cg_data.pax_tab, cg_data.zfwcg_050, pax_no)
+
+    local zfwcg
+    if pax_distrib <= 0.5 then
+        local f = (pax_distrib - 0.35) / (0.5 - 0.35)
+        local zfwcg_035 = tab_interpolate(cg_data.pax_tab, cg_data.zfwcg_035, pax_no)
+        zfwcg = (1 - f) * zfwcg_035 + f * zfwcg_050
+    else
+        local f = (pax_distrib - 0.5) / (0.6 - 0.5)
+        local zfwcg_060 = tab_interpolate(cg_data.pax_tab, cg_data.zfwcg_060, pax_no)
+        zfwcg = (1 - f) * zfwcg_050 + f * zfwcg_060
+    end
+
+    return pax_no, pax_distrib, zfwcg
+end
+
 local function format_ls_row(label, value, digit)
     return label .. string.rep(".", digit - #label - #value) .. " @" .. value .. "@ "
 end
@@ -108,12 +148,23 @@ local function generateFinalLoadsheet()
     local tow = zfw + fob - taxiFuel
     logMsg((tls_no_pax[0] * paxWeight))
 
+    local zfwcg
+    if cargo == 0 and PLANE_ICAO == "A20N" then
+        _, _, zfwcg = get_zfwcg(A320_cg_data)
+    end
+
+    if zfwcg == nil then
+        zfwcg = "EFB"
+    else
+        zfwcg = string.format("%0.1f", zfwcg)
+    end
+
     local ls = {}
     ls.title = "Final"
     ls.gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent"))
     ls.zfw = string.format("%0.1f", zfw / 1000)
     ls.tow = string.format("%0.1f",  tow / 1000)
-    ls.zfwcg = string.format("%0.1f", 29.2)
+    ls.zfwcg = zfwcg
     ls.f_blk = string.format("%d", fob)
     send_loadsheet(ls)
 end
