@@ -103,8 +103,13 @@ local function send_loadsheet(ls)
         format_ls_row("ZFWCG", ls.zfwcg, 9),
         format_ls_row("TOW", ls.tow, 9),
         format_ls_row("GWCG", ls.gwcg, 9),
-        format_ls_row("F.BLK", ls.f_blk, 9),
+        format_ls_row("FOB", ls.fob, 9),
+        format_ls_row("UNITS", units, 9),
     }, "\n")
+
+    if ls.msg ~= nil then
+        loadSheetContent = loadSheetContent .. "\n" .. ls.msg
+    end
 
     local payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
         HOPPIE_LOGON,
@@ -129,7 +134,7 @@ local function send_loadsheet(ls)
     logMsg(string.format("Hoppie returns: '%s', code: %d", msg, code))
 end
 
-local function generateFinalLoadsheet()
+local function generate_final_loadsheet()
     local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
 
     -- get("toliss_airbus/init/BlockFuel")
@@ -139,9 +144,9 @@ local function generateFinalLoadsheet()
     end
 
     if units == "lbs" then
-        fob = 100 * math.floor(fob * 2.20462 / 100)
+        fob = 100 * math.floor((fob * 2.20462 + 50) / 100)
     else
-        fob =100 * math.floor(fob / 100)
+        fob = 100 * math.floor((fob + 50)/ 100)
     end
 
     local zfw = oew + cargo + tls_no_pax[0] * paxWeight
@@ -165,36 +170,16 @@ local function generateFinalLoadsheet()
     ls.zfw = string.format("%0.1f", zfw / 1000)
     ls.tow = string.format("%0.1f",  tow / 1000)
     ls.zfwcg = zfwcg
-    ls.f_blk = string.format("%d", fob)
+    ls.fob = string.format("%d", fob)
+
+    if zfw > mzfw or tow > mtow then
+        ls.msg = "LOAD+DISCREPANCY:+RETURN+TO+GATE"
+     else
+        ls.msg = nil
+    end
+
     send_loadsheet(ls)
 end
-
--- local function generateFinalLoadsheet()
-    -- if SIMBRIEF_LOADED == true and HOPPIE_LOGON ~= "" then
-        -- cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
-
-        -- if units == "lbs" then
-            -- fob = 100* math.floor(get("toliss_airbus/init/BlockFuel") * 2.20462/100)
-        -- else
-            -- fob =100* math.floor(get("toliss_airbus/init/BlockFuel")/100)
-        -- end
-
-        -- gwMac = get("AirbusFBW/CGLocationPercent")
-        -- zfw = oew + cargo + (tls_no_pax[0] * paxWeight)
-        -- logMsg((tls_no_pax[0] * paxWeight))
-        -- tow = zfw + fob - taxiFuel
-
-        -- if zfw > mzfw or tow > mtow then
-            -- local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=LOAD+DISCREPANCY:+RETURN+TO+GATE")
-            -- logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
-        -- else
-            -- local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=FINAL+LOADSHEET%0A" .. operator .. flightNo .. "%0A" .. string.format("PAX:%d", tls_no_pax[0]) .. "%0A" .. string.format("TOW:%d", tow) .. "%0A" .. string.format("ZFW:%d", zfw) .. "%0A" .. string.format("GWCG:%.1f", gwMac) .. "%0A" .. string.format("FOB:%d", fob) .. "%0AUNIT:" .. units)
-            -- logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
-        -- end
-    -- else
-        -- logMsg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
-    -- end
--- end
 
 local function openDoorsForBoarding()
     passengerDoorArray[0] = 2
@@ -254,12 +239,9 @@ end
 local function boardInstantly()
     set("AirbusFBW/NoPax", intendedPassengerNumber)
     passengersBoarded = intendedPassengerNumber
-    boardingActive = false
-    boardingCompleted = true
-    playChimeSound(true)
-    command_once("AirbusFBW/SetWeightAndCG")
-    closeDoorsAfterBoarding()
-    generateFinalLoadsheet()
+    boardingActive = true
+    boardingCompleted = false
+    command_once("AirbusFBW/SetWeightAndCG")    -- that runs async so we need postprocessing in the draw loop
 end
 
 local function deboardInstantly()
@@ -346,7 +328,7 @@ function tobusBoarding()
                 buildTobusWindow()
             end
             playChimeSound(true)
-            generateFinalLoadsheet()
+            generate_final_loadsheet()
         end
 
     elseif deboardingActive then
