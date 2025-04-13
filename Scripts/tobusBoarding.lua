@@ -2,7 +2,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
    PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339"
 then
 
-local VERSION = "1.53-hotbso"
+local VERSION = "1.6-hotbso"
 logMsg("TOBUS " .. VERSION .. " startup")
 
  --http library import
@@ -14,16 +14,31 @@ local LIP = require("LIP")
 
 local wait_until_speak = 0
 local speak_string
-
-local intendedPassengerNumber
+ 
 local intended_no_pax_set = false
 
-local tls_no_pax        -- dataref_table
+local tls_no_pax    --AirbusFBW/NoPax    -- dataref_table
+local units --simbrief
+local operator --simbrief
+local flightNo --simbrief
+local intendedPassengerNumber --simbrief
+local oew --simbrief
+local paxWeight --simbrief pax weight
+local cargo
+local gwMac
+local fob
+local taxiFuel --simbrief
+local mzfw --simbrief
+local mtow --simbrief
+local tow
+local zfw
 local MAX_PAX_NUMBER = 224
 
+local SIMBRIEF_LOADED = false
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
 local SIMBRIEF_FLIGHTPLAN_FILENAME = "simbrief.xml"
 local SIMBRIEF_ACCOUNT_NAME = ""
+local HOPPIE_LOGON = ""
 local RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = false
 local USE_SECOND_DOOR = false
 local CLOSE_DOORS = true
@@ -34,6 +49,33 @@ local jw1_connected = false     -- set if an opensam jw at the second door is de
 local opensam_door_status = nil
 if nil ~= XPLMFindDataRef("opensam/jetway/door/status") then
 	opensam_door_status = dataref_table("opensam/jetway/door/status")
+end
+
+local function generateFinalLoadsheet()
+    if SIMBRIEF_LOADED == true and HOPPIE_LOGON ~= "" then
+        cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+
+        if units == "lbs" then
+            fob = 100* math.floor(get("toliss_airbus/init/BlockFuel") * 2.20462/100)
+        else
+            fob =100* math.floor(get("toliss_airbus/init/BlockFuel")/100)
+        end
+
+        gwMac = get("AirbusFBW/CGLocationPercent")
+        zfw = oew + cargo + (tls_no_pax[0] * paxWeight)
+        logMsg((tls_no_pax[0] * paxWeight))
+        tow = zfw + fob - taxiFuel
+
+        if zfw > mzfw or tow > mtow then
+            local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=LOAD+DISCREPANCY:+RETURN+TO+GATE")
+            logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
+        else
+            local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=FINAL+LOADSHEET%0A" .. operator .. flightNo .. "%0A" .. string.format("PAX:%d", tls_no_pax[0]) .. "%0A" .. string.format("TOW:%d", tow) .. "%0A" .. string.format("ZFW:%d", zfw) .. "%0A" .. string.format("GWCG:%.1f", gwMac) .. "%0A" .. string.format("FOB:%d", fob) .. "%0AUNIT:" .. units)
+            logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
+        end
+    else
+        logMsg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
+    end
 end
 
 local function openDoorsForBoarding()
@@ -99,6 +141,7 @@ local function boardInstantly()
     playChimeSound(true)
     command_once("AirbusFBW/SetWeightAndCG")
     closeDoorsAfterBoarding()
+    generateFinalLoadsheet()
 end
 
 local function deboardInstantly()
@@ -185,6 +228,7 @@ function tobusBoarding()
                 buildTobusWindow()
             end
             playChimeSound(true)
+            generateFinalLoadsheet()
         end
 
     elseif deboardingActive then
@@ -215,10 +259,15 @@ local function readSettings()
     local settings = LIP.load(SCRIPT_DIRECTORY..SETTINGS_FILENAME)
 
     settings.simbrief = settings.simbrief or {}    -- for backwards compatibility
+    settings.hoppie = settings.hoppie or {}    -- for backwards compatibility
     settings.doors = settings.doors or {}
 
     if settings.simbrief.username ~= nil then
         SIMBRIEF_ACCOUNT_NAME = settings.simbrief.username
+    end
+
+    if settings.hoppie.logon ~= nil then
+        HOPPIE_LOGON = settings.hoppie.logon
     end
 
     RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = settings.simbrief.randomizePassengerNumber or
@@ -236,6 +285,9 @@ local function saveSettings()
     newSettings.simbrief = {}
     newSettings.simbrief.username = SIMBRIEF_ACCOUNT_NAME
     newSettings.simbrief.randomizePassengerNumber = RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
+
+    newSettings.hoppie = {}
+    newSettings.hoppie.logon = HOPPIE_LOGON
 
     newSettings.doors = {}
     newSettings.doors.useSecondDoor = USE_SECOND_DOOR
@@ -263,6 +315,7 @@ local function fetchData()
     f:close()
 
     logMsg("Simbrief XML data downloaded")
+    SIMBRIEF_LOADED = true
     return true
 end
 
@@ -279,7 +332,15 @@ local function readXML()
     end
 
     intendedPassengerNumber = tonumber(handler.root.OFP.weights.pax_count)
-    logMsg(string.format("intendedPassengerNumber: %d", intendedPassengerNumber))
+    units = tostring(handler.root.OFP.params.units)
+    operator = tostring(handler.root.OFP.general.icao_airline)
+    flightNo = tonumber(handler.root.OFP.general.flight_number)
+    oew = tonumber(handler.root.OFP.weights.oew)
+    paxWeight = tonumber(handler.root.OFP.weights.pax_weight)
+    taxiFuel = tonumber(handler.root.OFP.fuel.taxi)
+    mzfw = tonumber(handler.root.OFP.weights.max_zfw)
+    mtow = tonumber(handler.root.OFP.weights.max_tow)
+    MAX_PAX_NUMBER = tonumber(handler.root.OFP.aircraft.max_passengers)
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
         local f = 0.01 * math.random(92, 103) -- lua 5.1: random take integer args!
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
@@ -525,6 +586,11 @@ function tobusOnBuild(tobus_window, x, y)
         changed, newval = imgui.InputText("Simbrief Username", SIMBRIEF_ACCOUNT_NAME, 255)
         if changed then
             SIMBRIEF_ACCOUNT_NAME = newval
+        end
+
+        changed, newval = imgui.InputText("Hoppie Logon", HOPPIE_LOGON, 255)
+        if changed then
+            HOPPIE_LOGON = newval
         end
 
         changed, newval = imgui.Checkbox("Simulate some passengers not showing up after simbrief import",
