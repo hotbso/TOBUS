@@ -14,24 +14,20 @@ local LIP = require("LIP")
 
 local wait_until_speak = 0
 local speak_string
- 
+
 local intended_no_pax_set = false
 
 local tls_no_pax    --AirbusFBW/NoPax    -- dataref_table
+local tank_content_array -- dataref_table
 local units --simbrief
 local operator --simbrief
 local flightNo --simbrief
 local intendedPassengerNumber --simbrief
 local oew --simbrief
 local paxWeight --simbrief pax weight
-local cargo
-local gwMac
-local fob
 local taxiFuel --simbrief
 local mzfw --simbrief
 local mtow --simbrief
-local tow
-local zfw
 local MAX_PAX_NUMBER = 224
 
 local SIMBRIEF_LOADED = false
@@ -51,32 +47,103 @@ if nil ~= XPLMFindDataRef("opensam/jetway/door/status") then
 	opensam_door_status = dataref_table("opensam/jetway/door/status")
 end
 
-local function generateFinalLoadsheet()
-    if SIMBRIEF_LOADED == true and HOPPIE_LOGON ~= "" then
-        cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
-
-        if units == "lbs" then
-            fob = 100* math.floor(get("toliss_airbus/init/BlockFuel") * 2.20462/100)
-        else
-            fob =100* math.floor(get("toliss_airbus/init/BlockFuel")/100)
-        end
-
-        gwMac = get("AirbusFBW/CGLocationPercent")
-        zfw = oew + cargo + (tls_no_pax[0] * paxWeight)
-        logMsg((tls_no_pax[0] * paxWeight))
-        tow = zfw + fob - taxiFuel
-
-        if zfw > mzfw or tow > mtow then
-            local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=LOAD+DISCREPANCY:+RETURN+TO+GATE")
-            logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
-        else
-            local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=FINAL+LOADSHEET%0A" .. operator .. flightNo .. "%0A" .. string.format("PAX:%d", tls_no_pax[0]) .. "%0A" .. string.format("TOW:%d", tow) .. "%0A" .. string.format("ZFW:%d", zfw) .. "%0A" .. string.format("GWCG:%.1f", gwMac) .. "%0A" .. string.format("FOB:%d", fob) .. "%0AUNIT:" .. units)
-            logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
-        end
-    else
-        logMsg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
-    end
+local function format_ls_row(label, value, digit)
+    return label .. string.rep(".", digit - #label - #value) .. " @" .. value .. "@ "
 end
+
+local function send_loadsheet(ls)
+    if not SIMBRIEF_LOADED or HOPPIE_LOGON == "" then
+        logMsg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
+        return
+    end
+
+    local loadSheetContent = "/data2/313//NE/" .. table.concat({
+        "Loadsheet @" .. ls.title .. "@ " .. os.date("%H:%M"),
+        format_ls_row("ZFW",  ls.zfw, 9),
+        format_ls_row("ZFWCG", ls.zfwcg, 9),
+        format_ls_row("TOW", ls.tow, 9),
+        format_ls_row("GWCG", ls.gwcg, 9),
+        format_ls_row("F.BLK", ls.f_blk, 9),
+    }, "\n")
+
+    local payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
+        HOPPIE_LOGON,
+        operator .. "OPS",
+        operator .. flightNo,
+        'cpdlc',
+        loadSheetContent:gsub("\n", "%%0A")
+    )
+
+    logMsg(payload)
+
+    local msg, code = http.request{
+            url = "https://www.hoppie.nl/acars/system/connect.html",
+            method = "POST",
+            headers = {
+                ["Content-Type"] = "application/x-www-form-urlencoded",
+                ["Content-Length"] = tostring(#payload),
+            },
+            source = ltn12.source.string(payload),
+        }
+
+    logMsg(string.format("Hoppie returns: '%s', code: %d", msg, code))
+end
+
+local function generateFinalLoadsheet()
+    local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+
+    -- get("toliss_airbus/init/BlockFuel")
+    local fob = 0
+    for i = 0,8 do
+        fob = fob + tank_content_array[i]
+    end
+
+    if units == "lbs" then
+        fob = 100 * math.floor(fob * 2.20462 / 100)
+    else
+        fob =100 * math.floor(fob / 100)
+    end
+
+    local zfw = oew + cargo + tls_no_pax[0] * paxWeight
+    local tow = zfw + fob - taxiFuel
+    logMsg((tls_no_pax[0] * paxWeight))
+
+    local ls = {}
+    ls.title = "Final"
+    ls.gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent"))
+    ls.zfw = string.format("%0.1f", zfw / 1000)
+    ls.tow = string.format("%0.1f",  tow / 1000)
+    ls.zfwcg = string.format("%0.1f", 29.2)
+    ls.f_blk = string.format("%d", fob)
+    send_loadsheet(ls)
+end
+
+-- local function generateFinalLoadsheet()
+    -- if SIMBRIEF_LOADED == true and HOPPIE_LOGON ~= "" then
+        -- cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+
+        -- if units == "lbs" then
+            -- fob = 100* math.floor(get("toliss_airbus/init/BlockFuel") * 2.20462/100)
+        -- else
+            -- fob =100* math.floor(get("toliss_airbus/init/BlockFuel")/100)
+        -- end
+
+        -- gwMac = get("AirbusFBW/CGLocationPercent")
+        -- zfw = oew + cargo + (tls_no_pax[0] * paxWeight)
+        -- logMsg((tls_no_pax[0] * paxWeight))
+        -- tow = zfw + fob - taxiFuel
+
+        -- if zfw > mzfw or tow > mtow then
+            -- local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=LOAD+DISCREPANCY:+RETURN+TO+GATE")
+            -- logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
+        -- else
+            -- local response, statusCode = http.request("http://www.hoppie.nl/acars/system/connect.html?logon=" .. HOPPIE_LOGON .. "&from=" .. operator .. "LC&to=" .. operator .. flightNo .. "&type=telex&packet=FINAL+LOADSHEET%0A" .. operator .. flightNo .. "%0A" .. string.format("PAX:%d", tls_no_pax[0]) .. "%0A" .. string.format("TOW:%d", tow) .. "%0A" .. string.format("ZFW:%d", zfw) .. "%0A" .. string.format("GWCG:%.1f", gwMac) .. "%0A" .. string.format("FOB:%d", fob) .. "%0AUNIT:" .. units)
+            -- logMsg("Hoppie Loadsheet Sent. Response:"..response.."Status Code:"..statusCode)
+        -- end
+    -- else
+        -- logMsg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
+    -- end
+-- end
 
 local function openDoorsForBoarding()
     passengerDoorArray[0] = 2
@@ -387,6 +454,7 @@ local function delayed_init()
     tls_no_pax = dataref_table("AirbusFBW/NoPax")
     passengerDoorArray = dataref_table("AirbusFBW/PaxDoorModeArray")
     cargoDoorArray = dataref_table("AirbusFBW/CargoDoorModeArray")
+    tank_content_array = dataref_table("toliss_airbus/fuelTankContent_kgs")
     resetAllParameters()
 end
 
