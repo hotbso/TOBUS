@@ -47,11 +47,26 @@ if nil ~= XPLMFindDataRef("opensam/jetway/door/status") then
 	opensam_door_status = dataref_table("opensam/jetway/door/status")
 end
 
-local A320_cg_data = {}
-A320_cg_data.pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188}
-A320_cg_data.zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2}
-A320_cg_data.zfwcg_050 = {29.5, 29.4, 29.4, 29.3, 29.3, 29.3, 29.3, 29.2, 29.2}
-A320_cg_data.zfwcg_060 = {29.5, 32.1, 33.7, 34.4, 34.3, 33.6, 32.2, 30.5, 29.2}
+local A20N_cg_data = {
+    pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188},
+    zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2},
+    zfwcg_050 = {29.5, 29.4, 29.4, 29.3, 29.3, 29.3, 29.3, 29.2, 29.2},
+    zfwcg_060 = {29.5, 32.1, 33.7, 34.4, 34.3, 33.6, 32.2, 30.5, 29.2}
+}
+
+local A321_cg_data = {
+    pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  220},
+    zfwcg_035 = {27.5, 22.5, 19.2, 17.4, 17.2, 17.5, 19.1, 21.5, 24.8, 27.9},
+    zfwcg_050 = {27.5, 27.6, 27.6, 27.7, 27.7, 27.7, 27.8, 27.8, 27.8, 27.9},
+    zfwcg_060 = {27.5, 30.9, 33.1, 34.3, 34.5, 34.4, 33.4, 31.9, 29.8, 27.9}
+}
+
+local A21N_cg_data = {
+    pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225, 244},
+    zfwcg_035 = {29.1, 24.3, 20.9, 18.9, 18.0, 18.1, 19.0, 20.8, 23.2, 26.2, 28.9},
+    zfwcg_050 = {29.1, 29.1, 29.1, 29.1, 29.0, 29.0, 29.0, 29.0, 29.0, 29.0, 28.9},
+    zfwcg_060 = {27.5, 32.3, 34.5, 35.8, 36.4, 36.3, 35.7, 34.5, 32.8, 30.8, 29.1}
+}
 
 -- stepwise linear interpolation
 local function tab_interpolate(pax_tab, zfwcg_tab, pax_no)
@@ -154,8 +169,14 @@ local function generate_final_loadsheet()
     logMsg((tls_no_pax[0] * paxWeight))
 
     local zfwcg
-    if cargo == 0 and PLANE_ICAO == "A20N" then
-        _, _, zfwcg = get_zfwcg(A320_cg_data)
+    if cargo == 0 then  -- cargo is currently unsupported
+        if PLANE_ICAO == "A20N" then
+            _, _, zfwcg = get_zfwcg(A20N_cg_data)
+        elseif PLANE_ICAO == "A321" then
+            _, _, zfwcg = get_zfwcg(A321_cg_data)
+        elseif PLANE_ICAO == "A21N" then
+            _, _, zfwcg = get_zfwcg(A21N_cg_data)
+        end
     end
 
     if zfwcg == nil then
