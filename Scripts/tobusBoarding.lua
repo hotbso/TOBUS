@@ -2,7 +2,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
    PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339"
 then
 
-local VERSION = "1.6-hotbso"
+local VERSION = "2.0-hotbso"
 logMsg("TOBUS " .. VERSION .. " startup")
 
  --http library import
@@ -48,34 +48,81 @@ if nil ~= XPLMFindDataRef("opensam/jetway/door/status") then
 	opensam_door_status = dataref_table("opensam/jetway/door/status")
 end
 
-local A20N_cg_data = {
-    pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188},
-    zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2},
-    zfwcg_050 = {29.5, 29.4, 29.4, 29.3, 29.3, 29.3, 29.3, 29.2, 29.2},
-    zfwcg_060 = {29.5, 32.1, 33.7, 34.4, 34.3, 33.6, 32.2, 30.5, 29.2}
+local plane_db = {
+    A319_160 = {
+        max_pax = 160,
+        cg_data = {
+            pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  140,  160},
+            zfwcg_035 = {28.6, 25.6, 23.7, 22.7, 22.6, 23.2, 24.4, 26.2, 28.6},
+            zfwcg_050 = {28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6},
+            zfwcg_060 = {28.6, 32.1, 31.9, 32.5, 32.6, 32.2, 31.4, 30.2, 28.6}
+        }
+    },
+
+    A319 = {
+        max_pax = 145,
+        cg_data = {
+            pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  145},
+            zfwcg_035 = {28.6, 25.6, 23.8, 23.1, 23.2, 24.1, 25.7, 28.6},
+            zfwcg_050 = {28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6},
+            zfwcg_060 = {28.6, 30.6, 31.8, 32.3, 32.2, 31.6, 30.5, 28.6}
+        }
+    },
+
+    A20N = {
+        max_pax = 188,
+        cg_data = {
+            pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188},
+            zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2},
+            zfwcg_050 = {29.5, 29.4, 29.4, 29.3, 29.3, 29.3, 29.3, 29.2, 29.2},
+            zfwcg_060 = {29.5, 32.1, 33.7, 34.4, 34.3, 33.6, 32.2, 30.5, 29.2}
+        }
+    },
+
+    A321 = {
+        max_pax = 220,
+        cg_data = {
+            pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  220},
+            zfwcg_035 = {27.5, 22.5, 19.2, 17.4, 17.2, 17.5, 19.1, 21.5, 24.8, 27.9},
+            zfwcg_050 = {27.5, 27.6, 27.6, 27.7, 27.7, 27.7, 27.8, 27.8, 27.8, 27.9},
+            zfwcg_060 = {27.5, 30.9, 33.1, 34.3, 34.5, 34.4, 33.4, 31.9, 29.8, 27.9}
+        }
+    },
+
+    A21N = {
+        max_pax = 244,
+        cg_data = {
+            pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225, 244},
+            zfwcg_035 = {29.1, 24.3, 20.9, 18.9, 18.0, 18.1, 19.0, 20.8, 23.2, 26.2, 28.9},
+            zfwcg_050 = {29.1, 29.1, 29.1, 29.1, 29.0, 29.0, 29.0, 29.0, 29.0, 29.0, 28.9},
+            zfwcg_060 = {27.5, 32.3, 34.5, 35.8, 36.4, 36.3, 35.7, 34.5, 32.8, 30.8, 29.1}
+        }
+    },
+
+    A339 = {
+        max_pax = 375
+        -- volunteers welcome for building the cg table
+    },
+
+    A346 = {
+        max_pax = 440
+        -- volunteers welcome for building the cg table
+    }
 }
 
-local A321_cg_data = {
-    pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  220},
-    zfwcg_035 = {27.5, 22.5, 19.2, 17.4, 17.2, 17.5, 19.1, 21.5, 24.8, 27.9},
-    zfwcg_050 = {27.5, 27.6, 27.6, 27.7, 27.7, 27.7, 27.8, 27.8, 27.8, 27.9},
-    zfwcg_060 = {27.5, 30.9, 33.1, 34.3, 34.5, 34.4, 33.4, 31.9, 29.8, 27.9}
-}
-
-local A21N_cg_data = {
-    pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225, 244},
-    zfwcg_035 = {29.1, 24.3, 20.9, 18.9, 18.0, 18.1, 19.0, 20.8, 23.2, 26.2, 28.9},
-    zfwcg_050 = {29.1, 29.1, 29.1, 29.1, 29.0, 29.0, 29.0, 29.0, 29.0, 29.0, 28.9},
-    zfwcg_060 = {27.5, 32.3, 34.5, 35.8, 36.4, 36.3, 35.7, 34.5, 32.8, 30.8, 29.1}
-}
+local plane_data    -- fro the current plane
 
 -- stepwise linear interpolation
 local function tab_interpolate(pax_tab, zfwcg_tab, pax_no)
-    local cg
-    for i = 1, #pax_tab - 1 do
+    local n = #pax_tab
+    if pax_no >= pax_tab[n] then
+        return zfwcg_tab[n]
+    end
+
+    for i = 1, n - 1 do
         local pax0 = pax_tab[i]
         local pax1 = pax_tab[i + 1]
-        if pax0 <= pax_no and pax_no <= pax1 then
+        if pax0 <= pax_no and pax_no < pax1 then
             local x = (pax_no - pax0) / (pax1 - pax0)
             return zfwcg_tab[i] + x * (zfwcg_tab[i + 1] - zfwcg_tab[i])
         end
@@ -179,21 +226,13 @@ local function generate_final_loadsheet()
     local tow = zfw + fob - taxiFuel
     logMsg((tls_no_pax[0] * paxWeight))
 
-    local zfwcg
+    local zfwcg = "EFB"
     if cargo == 0 then  -- cargo is currently unsupported
-        if PLANE_ICAO == "A20N" then
-            _, _, zfwcg = get_zfwcg(A20N_cg_data)
-        elseif PLANE_ICAO == "A321" then
-            _, _, zfwcg = get_zfwcg(A321_cg_data)
-        elseif PLANE_ICAO == "A21N" then
-            _, _, zfwcg = get_zfwcg(A21N_cg_data)
+        local cg_data = plane_data.cg_data
+        if cg_data ~= nil then
+            _, _, zfwcg = get_zfwcg(cg_data)
+            zfwcg = string.format("%0.1f", zfwcg)
         end
-    end
-
-    if zfwcg == nil then
-        zfwcg = "EFB"
-    else
-        zfwcg = string.format("%0.1f", zfwcg)
     end
 
     local ls = {}
@@ -470,15 +509,21 @@ local function readXML()
     end
 
     intendedPassengerNumber = tonumber(ofp.weights.pax_count)
-    units = tostring(ofp.params.units)
-    operator = tostring(ofp.general.icao_airline)
+    units = ofp.params.units
+    operator = ofp.general.icao_airline
     flightNo = tonumber(ofp.general.flight_number)
     oew = tonumber(ofp.weights.oew)
     paxWeight = tonumber(ofp.weights.pax_weight)
     taxiFuel = tonumber(ofp.fuel.taxi)
     mzfw = tonumber(ofp.weights.max_zfw)
     mtow = tonumber(ofp.weights.max_tow)
+
     MAX_PAX_NUMBER = tonumber(ofp.aircraft.max_passengers)
+    if PLANE_ICAO == "A319" and MAX_PAX_NUMBER == 160 then
+        plane_data = plane_db["A319_160"]
+        logMsg("A319 with MAX_PAX_NUMBER 160 variant loaded")
+    end
+
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
         local f = 0.01 * math.random(92, 103) -- lua 5.1: random take integer args!
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
@@ -486,39 +531,6 @@ local function readXML()
         logMsg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
     end
 end
-
-
--- init random
-math.randomseed(os.time())
-
-if not SUPPORTS_FLOATING_WINDOWS then
-    -- to make sure the script doesn't stop old FlyWithLua versions
-    logMsg("imgui not supported by your FlyWithLua version")
-    return
-end
-
-
-if PLANE_ICAO == "A319" then
-    MAX_PAX_NUMBER = 145
-elseif PLANE_ICAO == "A321" or PLANE_ICAO == "A21N" then
-    local a321EngineType = get("AirbusFBW/EngineTypeIndex")
-    if a321EngineType == 0 or a321EngineType == 1 then
-        MAX_PAX_NUMBER = 220
-    else
-        MAX_PAX_NUMBER = 224
-    end
-elseif PLANE_ICAO == "A20N" then
-    MAX_PAX_NUMBER = 188
-elseif PLANE_ICAO == "A339" then
-    MAX_PAX_NUMBER = 375
-elseif PLANE_ICAO == "A346" then
-    MAX_PAX_NUMBER = 440
-end
-
-logMsg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
-
--- init gloabl variables
-readSettings()
 
 local function delayed_init()
     if tls_no_pax ~= nil then return end
@@ -745,9 +757,10 @@ function tobusOnBuild(tobus_window, x, y)
         end
 
         if not HOPPIE_CPDLC then
-            imgui.SameLine();
             imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF00AAFF)
-            imgui.TextUnformatted("You must send a PDC prior to boarding for a Telex to arrive")
+            imgui.SameLine();
+            imgui.TextUnformatted("You MUST send a PDC reqequest prior to boarding for a Telex to arrive")
+            imgui.TextUnformatted("If you are not connected to VATSIM/IVAO use a fake station name, e.g. XXXX")
             imgui.PopStyleColor()
         end
 
@@ -822,9 +835,33 @@ function showTobusWindow()
     buildTobusWindow()
 end
 
+-- for building and debugging plane_db
+function tobus_zfwcg_often()
+    local pax_no, pax_distrib, zfwcg = get_zfwcg(plane_data.cg_data)
+    logMsg(string.format("distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f", pax_distrib, pax_no, zfwcg))
+end
+
+-- main
+math.randomseed(os.time())
+
+if not SUPPORTS_FLOATING_WINDOWS then
+    -- to make sure the script doesn't stop old FlyWithLua versions
+    logMsg("imgui not supported by your FlyWithLua version")
+    return
+end
+
+plane_data = plane_db[PLANE_ICAO]
+MAX_PAX_NUMBER = plane_data.max_pax
+
+logMsg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
+
+readSettings()
+
 add_macro("TOBUS - Your Toliss Boarding Companion", "buildTobusWindow()")
 create_command("FlyWithLua/TOBUS/Toggle_tobus", "Show TOBUS window", "showTobusWindow()", "", "")
 do_every_frame("tobusBoarding()")
-readSettings()
+
+-- for building and debugging plane_db
+-- do_often("tobus_zfwcg_often()")
 
 end
