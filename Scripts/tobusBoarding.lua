@@ -35,6 +35,7 @@ local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
 local SIMBRIEF_FLIGHTPLAN_FILENAME = "simbrief.xml"
 local SIMBRIEF_ACCOUNT_NAME = ""
 local HOPPIE_LOGON = ""
+local HOPPIE_CPDLC = true
 local RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = false
 local USE_SECOND_DOOR = false
 local CLOSE_DOORS = true
@@ -112,7 +113,7 @@ local function send_loadsheet(ls)
         return
     end
 
-    local loadSheetContent = "/data2/313//NE/" .. table.concat({
+    local loadSheetContent = table.concat({
         "Loadsheet @" .. ls.title .. "@ " .. os.date("%H:%M"),
         format_ls_row("ZFW",  ls.zfw, 9),
         format_ls_row("ZFWCG", ls.zfwcg, 9),
@@ -126,13 +127,24 @@ local function send_loadsheet(ls)
         loadSheetContent = loadSheetContent .. "\n" .. ls.msg
     end
 
-    local payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
-        HOPPIE_LOGON,
-        operator .. "OPS",
-        operator .. flightNo,
-        'cpdlc',
-        loadSheetContent:gsub("\n", "%%0A")
-    )
+    loadSheetContent = loadSheetContent:gsub("\n", "%%0A")
+
+    local payload
+    if HOPPIE_CPDLC then
+        payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
+            HOPPIE_LOGON,
+            operator .. "OPS",
+            operator .. flightNo,
+            'cpdlc',
+            "/data2/313//NE/" .. loadSheetContent)
+    else
+        payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
+            HOPPIE_LOGON,
+            operator .. "OPS",
+            operator .. flightNo,
+            'telex',
+            loadSheetContent)
+    end
 
     logMsg(payload)
 
@@ -152,7 +164,6 @@ end
 local function generate_final_loadsheet()
     local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
 
-    -- get("toliss_airbus/init/BlockFuel")
     local fob = 0
     for i = 0,8 do
         fob = fob + tank_content_array[i]
@@ -391,6 +402,10 @@ local function readSettings()
         HOPPIE_LOGON = settings.hoppie.logon
     end
 
+    if settings.hoppie.cpdlc ~= nil then
+        HOPPIE_CPDLC = settings.hoppie.cpdlc
+    end
+
     RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = settings.simbrief.randomizePassengerNumber or
                                                 RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
 
@@ -409,6 +424,7 @@ local function saveSettings()
 
     newSettings.hoppie = {}
     newSettings.hoppie.logon = HOPPIE_LOGON
+    newSettings.hoppie.cpdlc = HOPPIE_CPDLC
 
     newSettings.doors = {}
     newSettings.doors.useSecondDoor = USE_SECOND_DOOR
@@ -444,24 +460,25 @@ local function readXML()
     local xfile = xml2lua.loadFile(SCRIPT_DIRECTORY..SIMBRIEF_FLIGHTPLAN_FILENAME)
     local parser = xml2lua.parser(handler)
     parser:parse(xfile)
+    local ofp = handler.root.OFP
 
-    SIMBRIEF_FLIGHTPLAN["Status"] = handler.root.OFP.fetch.status
+    SIMBRIEF_FLIGHTPLAN["Status"] = ofp.fetch.status
 
     if SIMBRIEF_FLIGHTPLAN["Status"] ~= "Success" then
       logMsg("XML status is not success")
       return false
     end
 
-    intendedPassengerNumber = tonumber(handler.root.OFP.weights.pax_count)
-    units = tostring(handler.root.OFP.params.units)
-    operator = tostring(handler.root.OFP.general.icao_airline)
-    flightNo = tonumber(handler.root.OFP.general.flight_number)
-    oew = tonumber(handler.root.OFP.weights.oew)
-    paxWeight = tonumber(handler.root.OFP.weights.pax_weight)
-    taxiFuel = tonumber(handler.root.OFP.fuel.taxi)
-    mzfw = tonumber(handler.root.OFP.weights.max_zfw)
-    mtow = tonumber(handler.root.OFP.weights.max_tow)
-    MAX_PAX_NUMBER = tonumber(handler.root.OFP.aircraft.max_passengers)
+    intendedPassengerNumber = tonumber(ofp.weights.pax_count)
+    units = tostring(ofp.params.units)
+    operator = tostring(ofp.general.icao_airline)
+    flightNo = tonumber(ofp.general.flight_number)
+    oew = tonumber(ofp.weights.oew)
+    paxWeight = tonumber(ofp.weights.pax_weight)
+    taxiFuel = tonumber(ofp.fuel.taxi)
+    mzfw = tonumber(ofp.weights.max_zfw)
+    mtow = tonumber(ofp.weights.max_tow)
+    MAX_PAX_NUMBER = tonumber(ofp.aircraft.max_passengers)
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
         local f = 0.01 * math.random(92, 103) -- lua 5.1: random take integer args!
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
@@ -713,6 +730,25 @@ function tobusOnBuild(tobus_window, x, y)
         changed, newval = imgui.InputText("Hoppie Logon", HOPPIE_LOGON, 255)
         if changed then
             HOPPIE_LOGON = newval
+        end
+
+        imgui.TextUnformatted("Deliver loadsheet via: ")
+        imgui.SameLine()
+        if imgui.RadioButton("CPDLC", HOPPIE_CPDLC) then
+            HOPPIE_CPDLC = true
+        end
+
+        imgui.SameLine()
+
+        if imgui.RadioButton("Telex", not HOPPIE_CPDLC) then
+            HOPPIE_CPDLC = false
+        end
+
+        if not HOPPIE_CPDLC then
+            imgui.SameLine();
+            imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF00AAFF)
+            imgui.TextUnformatted("You must send a PDC prior to boarding for a Telex to arrive")
+            imgui.PopStyleColor()
         end
 
         changed, newval = imgui.Checkbox("Simulate some passengers not showing up after simbrief import",
