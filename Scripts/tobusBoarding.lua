@@ -534,10 +534,16 @@ end
 
 local function delayed_init()
     if tls_no_pax ~= nil then return end
+    logMsg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
+
     tls_no_pax = dataref_table("AirbusFBW/NoPax")
     passengerDoorArray = dataref_table("AirbusFBW/PaxDoorModeArray")
     cargoDoorArray = dataref_table("AirbusFBW/CargoDoorModeArray")
     tank_content_array = dataref_table("toliss_airbus/fuelTankContent_kgs")
+
+    -- we delay as the A321 changes to A21N on the fly
+    plane_data = plane_db[PLANE_ICAO]
+    MAX_PAX_NUMBER = plane_data.max_pax
     resetAllParameters()
 end
 
@@ -849,11 +855,6 @@ if not SUPPORTS_FLOATING_WINDOWS then
     logMsg("imgui not supported by your FlyWithLua version")
     return
 end
-
-plane_data = plane_db[PLANE_ICAO]
-MAX_PAX_NUMBER = plane_data.max_pax
-
-logMsg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
 
 readSettings()
 
