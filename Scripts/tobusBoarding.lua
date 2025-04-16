@@ -3,7 +3,6 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
 then
 
 local VERSION = "2.0-hotbso"
-logMsg("TOBUS " .. VERSION .. " startup")
 
  --http library import
 local xml2lua = require("xml2lua")
@@ -50,6 +49,7 @@ end
 
 local plane_db = {
     A319_160 = {
+        cfg = "A319_160",
         max_pax = 160,
         cg_data = {
             pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  140,  160},
@@ -60,6 +60,7 @@ local plane_db = {
     },
 
     A319 = {
+        cfg = "A319",
         max_pax = 145,
         cg_data = {
             pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  145},
@@ -70,6 +71,7 @@ local plane_db = {
     },
 
     A20N = {
+        cfg = "A20N",
         max_pax = 188,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188},
@@ -80,6 +82,7 @@ local plane_db = {
     },
 
     A321 = {
+        cfg = "A321",
         max_pax = 220,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  220},
@@ -90,6 +93,7 @@ local plane_db = {
     },
 
     A21N = {
+        cfg = "A21N",
         max_pax = 244,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225, 244},
@@ -100,17 +104,20 @@ local plane_db = {
     },
 
     A339 = {
+        cfg = "A339",
         max_pax = 375
         -- volunteers welcome for building the cg table
     },
 
     A346 = {
+        cfg = "A346",
         max_pax = 440
         -- volunteers welcome for building the cg table
     }
 }
 
-local plane_data    -- fro the current plane
+local plane_data    -- of the current plane
+local log_msg       -- forward
 
 -- stepwise linear interpolation
 local function tab_interpolate(pax_tab, zfwcg_tab, pax_no)
@@ -156,7 +163,7 @@ end
 
 local function send_loadsheet(ls)
     if not SIMBRIEF_LOADED or HOPPIE_LOGON == "" then
-        logMsg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
+        log_msg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
         return
     end
 
@@ -193,7 +200,7 @@ local function send_loadsheet(ls)
             loadSheetContent)
     end
 
-    logMsg(payload)
+    log_msg(payload:gsub("logon=[^&]+", "logon=***"))
 
     local msg, code = http.request{
             url = "https://www.hoppie.nl/acars/system/connect.html",
@@ -205,7 +212,7 @@ local function send_loadsheet(ls)
             source = ltn12.source.string(payload),
         }
 
-    logMsg(string.format("Hoppie returns: '%s', code: %d", msg, code))
+    log_msg(string.format("Hoppie returns: '%s', code: %d", msg, code))
 end
 
 local function generate_final_loadsheet()
@@ -224,24 +231,28 @@ local function generate_final_loadsheet()
 
     local zfw = oew + cargo + tls_no_pax[0] * paxWeight
     local tow = zfw + fob - taxiFuel
-    logMsg((tls_no_pax[0] * paxWeight))
+    log_msg((tls_no_pax[0] * paxWeight))
 
     local zfwcg = "EFB"
     if cargo == 0 then  -- cargo is currently unsupported
         local cg_data = plane_data.cg_data
         if cg_data ~= nil then
-            _, _, zfwcg = get_zfwcg(cg_data)
+            local pn, pd
+            pn, pd, zfwcg = get_zfwcg(cg_data)
+            log_msg(string.format("get_zfwcg: %s, distrib: %0.1f, pax_no: %d, zfwcg: %0.1f",
+                                   plane_data.cfg, pd, pn, zfwcg))
             zfwcg = string.format("%0.1f", zfwcg)
         end
     end
 
-    local ls = {}
-    ls.title = "Final"
-    ls.gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent"))
-    ls.zfw = string.format("%0.1f", zfw / 1000)
-    ls.tow = string.format("%0.1f",  tow / 1000)
-    ls.zfwcg = zfwcg
-    ls.fob = string.format("%d", fob)
+    local ls = {
+        title = "Final",
+        gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent")),
+        zfw = string.format("%0.1f", zfw / 1000),
+        tow = string.format("%0.1f",  tow / 1000),
+        zfwcg = zfwcg,
+        fob = string.format("%d", fob)
+    }
 
     if zfw > mzfw or tow > mtow then
         ls.msg = "LOAD+DISCREPANCY:+RETURN+TO+GATE"
@@ -455,7 +466,7 @@ local function readSettings()
 end
 
 local function saveSettings()
-    logMsg("tobus: saveSettings...")
+    log_msg("tobus: saveSettings...")
     local newSettings = {}
     newSettings.simbrief = {}
     newSettings.simbrief.username = SIMBRIEF_ACCOUNT_NAME
@@ -470,19 +481,19 @@ local function saveSettings()
     newSettings.doors.closeDoors = CLOSE_DOORS
     newSettings.doors.leaveDoor1Open = LEAVE_DOOR1_OPEN
     LIP.save(SCRIPT_DIRECTORY..SETTINGS_FILENAME, newSettings)
-    logMsg("tobus: done")
+    log_msg("tobus: done")
 end
 
 local function fetchData()
     if SIMBRIEF_ACCOUNT_NAME == nil then
-      logMsg("No simbrief username has been configured")
+      log_msg("No simbrief username has been configured")
       return false
     end
 
     local response, statusCode = http.request("http://www.simbrief.com/api/xml.fetcher.php?username=" .. SIMBRIEF_ACCOUNT_NAME)
 
     if statusCode ~= 200 then
-      logMsg("Simbrief API is not responding")
+      log_msg("Simbrief API is not responding")
       return false
     end
 
@@ -490,7 +501,7 @@ local function fetchData()
     f:write(response)
     f:close()
 
-    logMsg("Simbrief XML data downloaded")
+    log_msg("Simbrief XML data downloaded")
     SIMBRIEF_LOADED = true
     return true
 end
@@ -504,7 +515,7 @@ local function readXML()
     SIMBRIEF_FLIGHTPLAN["Status"] = ofp.fetch.status
 
     if SIMBRIEF_FLIGHTPLAN["Status"] ~= "Success" then
-      logMsg("XML status is not success")
+      log_msg("XML status is not success")
       return false
     end
 
@@ -521,20 +532,20 @@ local function readXML()
     MAX_PAX_NUMBER = tonumber(ofp.aircraft.max_passengers)
     if PLANE_ICAO == "A319" and MAX_PAX_NUMBER == 160 then
         plane_data = plane_db["A319_160"]
-        logMsg("A319 with MAX_PAX_NUMBER 160 variant loaded")
+        log_msg("A319 with MAX_PAX_NUMBER 160 variant loaded")
     end
 
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
         local f = 0.01 * math.random(92, 103) -- lua 5.1: random take integer args!
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
         if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
-        logMsg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
+        log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
     end
 end
 
 local function delayed_init()
     if tls_no_pax ~= nil then return end
-    logMsg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
+    log_msg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
 
     tls_no_pax = dataref_table("AirbusFBW/NoPax")
     passengerDoorArray = dataref_table("AirbusFBW/PaxDoorModeArray")
@@ -617,7 +628,7 @@ function tobusOnBuild(tobus_window, x, y)
                 if boardingSpeedMode == 1 then
                     boardInstantly()
                 else
-                    logMsg(string.format("start boarding with %0.1f s/pax", secondsPerPassenger))
+                    log_msg(string.format("start boarding with %0.1f s/pax", secondsPerPassenger))
                 end
             end
         end
@@ -780,21 +791,21 @@ function tobusOnBuild(tobus_window, x, y)
             "Use front and back door for boarding and deboarding (only front door by default)", USE_SECOND_DOOR)
         if changed then
             USE_SECOND_DOOR = newval
-            logMsg("USE_SECOND_DOOR set to " .. tostring(USE_SECOND_DOOR))
+            log_msg("USE_SECOND_DOOR set to " .. tostring(USE_SECOND_DOOR))
         end
 
         changed, newval = imgui.Checkbox(
             "Close doors after boarding/deboading", CLOSE_DOORS)
         if changed then
             CLOSE_DOORS = newval
-            logMsg("CLOSE_DOORS set to " .. tostring(CLOSE_DOORS))
+            log_msg("CLOSE_DOORS set to " .. tostring(CLOSE_DOORS))
         end
 
         changed, newval = imgui.Checkbox(
             "Leave door1 open after boarding/deboading", LEAVE_DOOR1_OPEN)
         if changed then
             LEAVE_DOOR1_OPEN = newval
-            logMsg("LEAVE_DOOR1_OPEN set to " .. tostring(LEAVE_DOOR1_OPEN))
+            log_msg("LEAVE_DOOR1_OPEN set to " .. tostring(LEAVE_DOOR1_OPEN))
         end
 
         if imgui.Button("Save Settings") then
@@ -843,16 +854,24 @@ end
 
 -- for building and debugging plane_db
 function tobus_zfwcg_often()
+    if plane_data == nil then return end
     local pax_no, pax_distrib, zfwcg = get_zfwcg(plane_data.cg_data)
-    logMsg(string.format("distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f", pax_distrib, pax_no, zfwcg))
+    log_msg(string.format("%s, distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f",
+                           plane_data.cfg, pax_distrib, pax_no, zfwcg))
+end
+
+function log_msg(str) -- custom log function
+  local temp = os.date("*t", os.time())
+  logMsg(string.format("tobus: %02d:%02d:%02d %s", temp.hour, temp.min, temp.sec, str))
 end
 
 -- main
+log_msg("TOBUS " .. VERSION .. " startup")
 math.randomseed(os.time())
 
 if not SUPPORTS_FLOATING_WINDOWS then
     -- to make sure the script doesn't stop old FlyWithLua versions
-    logMsg("imgui not supported by your FlyWithLua version")
+    log_msg("imgui not supported by your FlyWithLua version")
     return
 end
 
@@ -863,6 +882,6 @@ create_command("FlyWithLua/TOBUS/Toggle_tobus", "Show TOBUS window", "showTobusW
 do_every_frame("tobusBoarding()")
 
 -- for building and debugging plane_db
--- do_often("tobus_zfwcg_often()")
+do_often("tobus_zfwcg_often()")
 
 end
