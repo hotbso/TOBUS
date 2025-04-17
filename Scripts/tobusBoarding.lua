@@ -20,7 +20,6 @@ local tls_no_pax    --AirbusFBW/NoPax    -- dataref_table
 local tank_content_array -- dataref_table
 local units --simbrief
 local operator --simbrief
-local flightNo --simbrief
 local intendedPassengerNumber --simbrief
 local taxiFuel --simbrief
 local mzfw --simbrief
@@ -185,13 +184,10 @@ local function format_ls_row(label, value, digit)
 end
 
 local function send_loadsheet(ls)
-    if not SIMBRIEF_LOADED or HOPPIE_LOGON == "" then
-        log_msg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
-        return
-    end
 
     local loadSheetContent = table.concat({
         "Loadsheet @" .. ls.title .. "@ " .. os.date("%H:%M"),
+        format_ls_row("PAX", ls.pax, 9),
         format_ls_row("ZFW",  ls.zfw, 9),
         format_ls_row("ZFWCG", ls.zfwcg, 9),
         format_ls_row("TOW", ls.tow, 9),
@@ -206,19 +202,21 @@ local function send_loadsheet(ls)
 
     loadSheetContent = loadSheetContent:gsub("\n", "%%0A")
 
+    local ident = get("toliss_airbus/init/flight_no")   -- from INIT page
+
     local payload
     if HOPPIE_CPDLC then
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
             HOPPIE_LOGON,
             operator .. "OPS",
-            operator .. flightNo,
+            ident,
             'cpdlc',
             "/data2/313//NE/" .. loadSheetContent)
     else
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
             HOPPIE_LOGON,
             operator .. "OPS",
-            operator .. flightNo,
+            ident,
             'telex',
             loadSheetContent)
     end
@@ -239,6 +237,11 @@ local function send_loadsheet(ls)
 end
 
 local function generate_final_loadsheet()
+    if not SIMBRIEF_LOADED or HOPPIE_LOGON == "" then
+        log_msg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
+        return
+    end
+
     local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
 
     local fob = 0
@@ -273,7 +276,8 @@ local function generate_final_loadsheet()
         zfw = string.format("%0.1f", zfw / 1000),
         tow = string.format("%0.1f",  tow / 1000),
         zfwcg = zfwcg,
-        fob = string.format("%d", fob)
+        fob = string.format("%d", fob),
+        pax = string.format("%d", tls_no_pax[0])
     }
 
     if zfw > mzfw or tow > mtow then
@@ -547,7 +551,6 @@ local function readXML()
     intendedPassengerNumber = tonumber(ofp.weights.pax_count)
     units = ofp.params.units
     operator = ofp.general.icao_airline
-    flightNo = ofp.general.flight_number
     taxiFuel = tonumber(ofp.fuel.taxi)
     mzfw = tonumber(ofp.weights.max_zfw)
     mtow = tonumber(ofp.weights.max_tow)
