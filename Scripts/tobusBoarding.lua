@@ -22,8 +22,6 @@ local units --simbrief
 local operator --simbrief
 local flightNo --simbrief
 local intendedPassengerNumber --simbrief
-local oew --simbrief
-local paxWeight --simbrief pax weight
 local taxiFuel --simbrief
 local mzfw --simbrief
 local mtow --simbrief
@@ -51,6 +49,7 @@ local plane_db = {
     A319_160 = {
         cfg = "A319_160",
         max_pax = 160,
+        oew = 40820,
         cg_data = {
             pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  140,  160},
             zfwcg_035 = {28.6, 25.6, 23.7, 22.7, 22.6, 23.2, 24.4, 26.2, 28.6},
@@ -62,6 +61,7 @@ local plane_db = {
     A319 = {
         cfg = "A319",
         max_pax = 145,
+        oew = 40820,
         cg_data = {
             pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  145},
             zfwcg_035 = {28.6, 25.6, 23.8, 23.1, 23.2, 24.1, 25.7, 28.6},
@@ -73,6 +73,7 @@ local plane_db = {
     A20N = {
         cfg = "A20N",
         max_pax = 188,
+        oew = 44220,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188},
             zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2},
@@ -84,6 +85,7 @@ local plane_db = {
     A321 = {
         cfg = "A321",
         max_pax = 220,
+        oew = 47780,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  220},
             zfwcg_035 = {27.5, 22.5, 19.2, 17.4, 17.2, 17.5, 19.1, 21.5, 24.8, 27.9},
@@ -95,6 +97,7 @@ local plane_db = {
     A21N = {
         cfg = "A21N",
         max_pax = 244,
+        oew = 49580,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225, 244},
             zfwcg_035 = {29.1, 24.3, 20.9, 18.9, 18.0, 18.1, 19.0, 20.8, 23.2, 26.2, 28.9},
@@ -107,6 +110,7 @@ local plane_db = {
     A21N_200 = {
         cfg = "A21N",
         max_pax = 200,
+        oew = 49580,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200},
             zfwcg_035 = {29.1, 24.6, 21.7, 20.2, 20.2, 20.9, 22.8, 25.5, 29.0},
@@ -118,6 +122,7 @@ local plane_db = {
     A339 = {
         cfg = "A339",
         max_pax = 375,
+        oew = 134500,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225,  250,  275,  300,  325,  350,  375},
             zfwcg_035 = {27.5, 26.0, 24.8, 23.8, 23.1, 22.6, 22.2, 22.1, 22.2, 22.5, 22.9, 23.5, 24.3, 25.2, 26.3, 27.5},
@@ -128,7 +133,8 @@ local plane_db = {
 
     A346 = {
         cfg = "A346",
-        max_pax = 440
+        max_pax = 440,
+        oew = 185500,
         -- volunteers welcome for building the cg table
     }
 }
@@ -233,7 +239,6 @@ local function send_loadsheet(ls)
 end
 
 local function generate_final_loadsheet()
-    if oew == nil then return end
     local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
 
     local fob = 0
@@ -247,9 +252,8 @@ local function generate_final_loadsheet()
         fob = 100 * math.floor((fob + 50)/ 100)
     end
 
-    local zfw = oew + cargo + tls_no_pax[0] * paxWeight
+    local zfw = plane_data.oew + cargo + tls_no_pax[0] * 100 -- hard coded pax weight by ToLiss
     local tow = zfw + fob - taxiFuel
-    log_msg((tls_no_pax[0] * paxWeight))
 
     local zfwcg = "EFB"
     if cargo == 0 then  -- cargo is currently unsupported
@@ -544,8 +548,6 @@ local function readXML()
     units = ofp.params.units
     operator = ofp.general.icao_airline
     flightNo = ofp.general.flight_number
-    oew = tonumber(ofp.weights.oew)
-    paxWeight = tonumber(ofp.weights.pax_weight)
     taxiFuel = tonumber(ofp.fuel.taxi)
     mzfw = tonumber(ofp.weights.max_zfw)
     mtow = tonumber(ofp.weights.max_tow)
