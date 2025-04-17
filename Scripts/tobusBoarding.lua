@@ -103,10 +103,27 @@ local plane_db = {
         }
     },
 
+    -- without third door
+    A21N_200 = {
+        cfg = "A21N",
+        max_pax = 200,
+        cg_data = {
+            pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200},
+            zfwcg_035 = {29.1, 24.6, 21.7, 20.2, 20.2, 20.9, 22.8, 25.5, 29.0},
+            zfwcg_050 = {29.1, 29.1, 29.1, 29.1, 29.0, 29.0, 29.0, 29.0, 29.0},
+            zfwcg_060 = {29.1, 32.4, 34.5, 35.5, 35.6, 35.0, 33.6, 31.6, 29.0}
+        }
+    },
+
     A339 = {
         cfg = "A339",
-        max_pax = 375
-        -- volunteers welcome for building the cg table
+        max_pax = 375,
+        cg_data = {
+            pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225,  250,  275,  300,  325,  350,  375},
+            zfwcg_035 = {27.5, 26.0, 24.8, 23.8, 23.1, 22.6, 22.2, 22.1, 22.2, 22.5, 22.9, 23.5, 24.3, 25.2, 26.3, 27.5},
+            zfwcg_050 = {27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5, 27.5},
+            zfwcg_060 = {27.5, 28.5, 29.4, 30.0, 30.5, 30.9, 31.1, 31.2, 31.1, 30.9, 30.6, 30.2, 29.7, 29.0, 28.3, 27.5}
+        }
     },
 
     A346 = {
@@ -216,6 +233,7 @@ local function send_loadsheet(ls)
 end
 
 local function generate_final_loadsheet()
+    if oew == nil then return end
     local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
 
     local fob = 0
@@ -506,6 +524,9 @@ local function fetchData()
     return true
 end
 
+local function set_plane_data()
+end
+
 local function readXML()
     local xfile = xml2lua.loadFile(SCRIPT_DIRECTORY..SIMBRIEF_FLIGHTPLAN_FILENAME)
     local parser = xml2lua.parser(handler)
@@ -522,7 +543,7 @@ local function readXML()
     intendedPassengerNumber = tonumber(ofp.weights.pax_count)
     units = ofp.params.units
     operator = ofp.general.icao_airline
-    flightNo = tonumber(ofp.general.flight_number)
+    flightNo = ofp.general.flight_number
     oew = tonumber(ofp.weights.oew)
     paxWeight = tonumber(ofp.weights.pax_weight)
     taxiFuel = tonumber(ofp.fuel.taxi)
@@ -535,8 +556,12 @@ local function readXML()
         log_msg("A319 with MAX_PAX_NUMBER 160 variant loaded")
     end
 
+    if MAX_PAX_NUMBER ~= plane_data.max_pax then
+        log_msg(string.format("max. pax no mismatch: ofp: %d config: %d", MAX_PAX_NUMBER, plane_data.max_pax))
+    end
+
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
-        local f = 0.01 * math.random(92, 103) -- lua 5.1: random take integer args!
+        local f = 0.01 * math.random(92, 103) -- lua 5.1: random takes integer args!
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
         if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
         log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
@@ -552,9 +577,16 @@ local function delayed_init()
     cargoDoorArray = dataref_table("AirbusFBW/CargoDoorModeArray")
     tank_content_array = dataref_table("toliss_airbus/fuelTankContent_kgs")
 
-    -- we delay as the A321 changes to A21N on the fly
-    plane_data = plane_db[PLANE_ICAO]
+    if PLANE_ICAO == "A21N" and get("AirbusFBW/A321ExitConfig") == 3 then    -- no door 3
+        plane_data = plane_db["A21N_200"]
+        log_msg("A21N with MAX_PAX_NUMBER 200 variant loaded")
+    else
+        plane_data = plane_db[PLANE_ICAO]
+        log_msg(PLANE_ICAO .. " variant loaded")
+    end
+
     MAX_PAX_NUMBER = plane_data.max_pax
+
     resetAllParameters()
 end
 
@@ -856,8 +888,7 @@ end
 function tobus_zfwcg_often()
     if plane_data == nil then return end
     local pax_no, pax_distrib, zfwcg = get_zfwcg(plane_data.cg_data)
-    log_msg(string.format("%s, distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f",
-                           plane_data.cfg, pax_distrib, pax_no, zfwcg))
+    log_msg(string.format("%s, distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f",plane_data.cfg, pax_distrib, pax_no, zfwcg))
 end
 
 function log_msg(str) -- custom log function
@@ -882,6 +913,6 @@ create_command("FlyWithLua/TOBUS/Toggle_tobus", "Show TOBUS window", "showTobusW
 do_every_frame("tobusBoarding()")
 
 -- for building and debugging plane_db
-do_often("tobus_zfwcg_often()")
+-- do_often("tobus_zfwcg_often()")
 
 end
