@@ -1,5 +1,5 @@
 # TOBUS mod
-**This is a mod of TOBUS by @piotr-tomczyk who is unreachable (for me) and seems to have other prorities now. I took the liberty to add some functionality and keep this tool alive.**
+**This is a mod of TOBUS by @piotr-tomczyk who is unreachable and seems to have other prorities now. I took the liberty to add some functionality and keep this tool alive.**
 
 Credits:
 
@@ -53,7 +53,7 @@ After the boarding/deboarding will finish the application window will show itsel
 - Currently supported airframes: all narrow bodies and the A339
 - Passenger weight must stay at the default of 100 kg
 - Cargo is currently unsupported
-- If you use Telex as delivery method you must send a PDC request prior to boarding completion. If you're not connected ta network use a fake station name like *XXXX* in order to not disturb the online systems.
+- If you use Telex as delivery method you must send a PDC request prior to boarding completion. If you're not connected to a network use a fake station name like *XXXX* in order to not disturb the online systems.
   
 ## INSTALLATION
 1. Install current version of FlyWithLua NG+, if you don't have it already.
