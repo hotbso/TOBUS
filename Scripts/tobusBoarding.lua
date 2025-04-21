@@ -2,7 +2,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
    PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339"
 then
 
-local VERSION = "2.0-hotbso"
+local VERSION = "2.0.1-hotbso"
 
  --http library import
 local xml2lua = require("xml2lua")
@@ -11,6 +11,7 @@ local socket = require "socket"
 local http = require "socket.http"
 local LIP = require("LIP")
 
+local kg2lbs = 2.204622
 local wait_until_speak = 0
 local speak_string
 
@@ -242,24 +243,30 @@ local function generate_final_loadsheet()
         return
     end
 
-    local cargo = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+    local cargo_kg = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
 
-    local fob = 0
+    local fob_kg = 0
     for i = 0,8 do
-        fob = fob + tank_content_array[i]
+        fob_kg = fob_kg + tank_content_array[i]
     end
 
+    local fob_uu
     if units == "lbs" then
-        fob = 100 * math.floor((fob * 2.20462 + 50) / 100)
+        fob_uu = 100 * math.floor(fob_kg * kg2lbs / 100 + 0.35)    -- conservative rounding
     else
-        fob = 100 * math.floor((fob + 50)/ 100)
+        fob_uu = 100 * math.floor(fob_kg / 100 + 0.35)
     end
 
-    local zfw = plane_data.oew + cargo + tls_no_pax[0] * 100 -- hard coded pax weight by ToLiss
-    local tow = zfw + fob - taxiFuel
+    local zfw_kg = plane_data.oew + cargo_kg + tls_no_pax[0] * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfw_uu = zfw_kg
+    if units == "lbs" then
+        zfw_uu = zfw_kg * kg2lbs
+    end
+
+    local tow_uu = zfw_uu + fob_uu - taxiFuel
 
     local zfwcg = "EFB"
-    if cargo == 0 then  -- cargo is currently unsupported
+    if cargo_kg == 0 then  -- cargo is currently unsupported
         local cg_data = plane_data.cg_data
         if cg_data ~= nil then
             local pn, pd
@@ -270,17 +277,17 @@ local function generate_final_loadsheet()
         end
     end
 
-    local ls = {
+    local ls = {    -- in user units
         title = "Final",
         gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent")),
-        zfw = string.format("%0.1f", zfw / 1000),
-        tow = string.format("%0.1f",  tow / 1000),
+        zfw = string.format("%0.1f", zfw_uu / 1000),
+        tow = string.format("%0.1f",  tow_uu / 1000),
         zfwcg = zfwcg,
-        fob = string.format("%d", fob),
+        fob = string.format("%d", fob_uu),
         pax = string.format("%d", tls_no_pax[0])
     }
 
-    if zfw > mzfw or tow > mtow then
+    if zfw_uu > mzfw or tow_uu > mtow then
         ls.msg = "LOAD+DISCREPANCY:+RETURN+TO+GATE"
      else
         ls.msg = nil
@@ -432,9 +439,9 @@ function tobusBoarding()
             boardingCompleted = true
             boardingActive = false
             closeDoorsAfterBoarding()
-            if not isTobusWindowDisplayed then
-                buildTobusWindow()
-            end
+            -- if not isTobusWindowDisplayed then
+                -- buildTobusWindow()
+            -- end
             playChimeSound(true)
             generate_final_loadsheet()
         end
@@ -451,9 +458,9 @@ function tobusBoarding()
             deboardingCompleted = true
             deboardingActive = false
             closeDoorsAfterBoarding()
-            if not isTobusWindowDisplayed then
-                buildTobusWindow()
-            end
+            -- if not isTobusWindowDisplayed then
+                -- buildTobusWindow()
+            -- end
             playChimeSound(false)
         end
     end
@@ -877,7 +884,7 @@ function buildTobusWindow()
     isTobusWindowDisplayed = true
 end
 
-function showTobusWindow()
+function toggleTobusWindow()
     if isTobusWindowDisplayed then
         if not winCloseInProgess then
             winCloseInProgess = true
@@ -914,7 +921,7 @@ end
 readSettings()
 
 add_macro("TOBUS - Your Toliss Boarding Companion", "buildTobusWindow()")
-create_command("FlyWithLua/TOBUS/Toggle_tobus", "Show TOBUS window", "showTobusWindow()", "", "")
+create_command("FlyWithLua/TOBUS/Toggle_tobus", "Toggle TOBUS window", "toggleTobusWindow()", "", "")
 do_every_frame("tobusBoarding()")
 
 -- for building and debugging plane_db
