@@ -2,7 +2,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
    PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339"
 then
 
-local VERSION = "2.0.1-hotbso"
+local VERSION = "2.0.2-hotbso"
 
  --http library import
 local xml2lua = require("xml2lua")
@@ -113,9 +113,9 @@ local plane_db = {
         oew = 49580,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200},
-            zfwcg_035 = {29.1, 24.6, 21.7, 20.2, 20.2, 20.9, 22.8, 25.5, 29.0},
+            zfwcg_035 = {29.1, 24.4, 21.4, 19.9, 19.7, 20.9, 22.5, 25.3, 29.0},
             zfwcg_050 = {29.1, 29.1, 29.1, 29.1, 29.0, 29.0, 29.0, 29.0, 29.0},
-            zfwcg_060 = {29.1, 32.4, 34.5, 35.5, 35.6, 35.0, 33.6, 31.6, 29.0}
+            zfwcg_060 = {29.1, 32.2, 34.2, 35.2, 35.3, 34.6, 33.3, 31.4, 29.0}
         }
     },
 
@@ -262,6 +262,9 @@ local function generate_final_loadsheet()
     if units == "lbs" then
         zfw_uu = zfw_kg * kg2lbs
     end
+
+    log_msg(string.format("fob_kg: %d, fob_uu: %d, zfw_kg: %d, zfw_uu: %d",
+            fob_kg, fob_uu, zfw_kg, zfw_uu))
 
     local tow_uu = zfw_uu + fob_uu - taxiFuel
 
