@@ -2,7 +2,8 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
    PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339"
 then
 
-local VERSION = "2.0.2-hotbso"
+local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
+local VERSION = "2.0.3-hotbso"
 
  --http library import
 local xml2lua = require("xml2lua")
@@ -302,10 +303,10 @@ end
 local function openDoorsForBoarding()
     passengerDoorArray[0] = 2
     if USE_SECOND_DOOR or jw1_connected then
-        if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A339" then
+        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A339" then
             passengerDoorArray[2] = 2
         end
-        if PLANE_ICAO == "A321" or PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" then
+        if MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" or MY_PLANE_ICAO == "A346" then
             passengerDoorArray[6] = 2
         end
     end
@@ -321,11 +322,11 @@ local function closeDoorsAfterBoarding()
     end
 
     if USE_SECOND_DOOR or jw1_connected then
-        if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A339" then
+        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A339" then
             passengerDoorArray[2] = 0
         end
 
-        if PLANE_ICAO == "A321" or PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339" then
+        if MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" or MY_PLANE_ICAO == "A346" or MY_PLANE_ICAO == "A339" then
             passengerDoorArray[6] = 0
         end
     end
@@ -542,9 +543,6 @@ local function fetchData()
     return true
 end
 
-local function set_plane_data()
-end
-
 local function readXML()
     local xfile = xml2lua.loadFile(SCRIPT_DIRECTORY..SIMBRIEF_FLIGHTPLAN_FILENAME)
     local parser = xml2lua.parser(handler)
@@ -566,7 +564,7 @@ local function readXML()
     mtow = tonumber(ofp.weights.max_tow)
 
     MAX_PAX_NUMBER = tonumber(ofp.aircraft.max_passengers)
-    if PLANE_ICAO == "A319" and MAX_PAX_NUMBER == 160 then
+    if MY_PLANE_ICAO == "A319" and MAX_PAX_NUMBER == 160 then
         plane_data = plane_db["A319_160"]
         log_msg("A319 with MAX_PAX_NUMBER 160 variant loaded")
     end
@@ -585,22 +583,31 @@ end
 
 local function delayed_init()
     if tls_no_pax ~= nil then return end
-    log_msg(string.format("tobus: plane: %s, MAX_PAX_NUMBER: %d", PLANE_ICAO, MAX_PAX_NUMBER))
+
+    local plane_icao = get("sim/aircraft/view/acf_ICAO")
+    local i0 = string.find(plane_icao, "\0")
+    if i0 ~= nil then
+        MY_PLANE_ICAO = string.sub(plane_icao, 1, i0 - 1)
+    else
+        MY_PLANE_ICAO = plane_icao
+    end
 
     tls_no_pax = dataref_table("AirbusFBW/NoPax")
     passengerDoorArray = dataref_table("AirbusFBW/PaxDoorModeArray")
     cargoDoorArray = dataref_table("AirbusFBW/CargoDoorModeArray")
     tank_content_array = dataref_table("toliss_airbus/fuelTankContent_kgs")
 
-    if PLANE_ICAO == "A21N" and get("AirbusFBW/A321ExitConfig") == 3 then    -- no door 3
+    if MY_PLANE_ICAO == "A21N" and get("AirbusFBW/A321ExitConfig") == 3 then    -- no door 3
         plane_data = plane_db["A21N_200"]
         log_msg("A21N with MAX_PAX_NUMBER 200 variant loaded")
     else
-        plane_data = plane_db[PLANE_ICAO]
-        log_msg(PLANE_ICAO .. " variant loaded")
+        plane_data = plane_db[MY_PLANE_ICAO]
+        log_msg(MY_PLANE_ICAO .. " variant loaded")
     end
 
     MAX_PAX_NUMBER = plane_data.max_pax
+
+    log_msg(string.format("tobus: plane: '%s', MAX_PAX_NUMBER: %d", MY_PLANE_ICAO, MAX_PAX_NUMBER))
 
     resetAllParameters()
 end
