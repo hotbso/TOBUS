@@ -484,13 +484,21 @@ local function readSettings()
         HOPPIE_CPDLC = settings.hoppie.cpdlc
     end
 
-    RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = settings.simbrief.randomizePassengerNumber or
-                                                RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
+    if settings.simbrief.randomizePassengerNumber ~= nil then
+        RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = settings.simbrief.randomizePassengerNumber
+    end
 
-    USE_SECOND_DOOR = settings.doors.useSecondDoor or USE_SECOND_DOOR
-    CLOSE_DOORS = settings.doors.closeDoors or CLOSE_DOORS
-    LEAVE_DOOR1_OPEN = settings.doors.leaveDoor1Open or LEAVE_DOOR1_OPEN
+    if settings.doors.useSecondDoor ~= nil then
+        USE_SECOND_DOOR = settings.doors.useSecondDoor
+    end
 
+    if settings.doors.closeDoors ~= nil then
+        CLOSE_DOORS = settings.doors.closeDoors
+    end
+
+    if settings.doors.leaveDoor1Open ~= nil then
+        LEAVE_DOOR1_OPEN = settings.doors.leaveDoor1Open
+    end
 end
 
 local function saveSettings()
