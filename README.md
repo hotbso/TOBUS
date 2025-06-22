@@ -57,7 +57,7 @@ After the boarding/deboarding will finish the application window will show itsel
   
 ## INSTALLATION
 1. Install current version of FlyWithLua NG+, if you don't have it already.
-2. Extract the zip in the "<X-Plane-Folder>/Resources/plugins/FlyWithLua/" folder. Be sure that you have all the needed files in the MODULE folder because there are essential for the script to work.
-3. Enjoy!!!
-   
+2. For Simbrief integration to work install the [simbrief_hub](https://github.com/hotbso/simbrief_hub?tab=readme-ov-file#simbrief_hub) plugin 1.0.1 or later.
+3. Extract the zip in the "<X-Plane-Folder>/Resources/plugins/FlyWithLua/" folder. Be sure that you have all the needed files in the MODULE folder because there are essential for the script to work.
+
 It should be compatible with every Toliss version.
