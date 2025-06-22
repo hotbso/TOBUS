@@ -3,11 +3,9 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "2.0.3-hotbso"
+local VERSION = "2.1.0-hotbso"
 
  --http library import
-local xml2lua = require("xml2lua")
-local handler = require("xmlhandler.tree")
 local socket = require "socket"
 local http = require "socket.http"
 local LIP = require("LIP")
@@ -30,15 +28,12 @@ local MAX_PAX_NUMBER = 224
 
 local SIMBRIEF_LOADED = false
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
-local SIMBRIEF_FLIGHTPLAN_FILENAME = "simbrief.xml"
-local SIMBRIEF_ACCOUNT_NAME = ""
 local HOPPIE_LOGON = ""
 local HOPPIE_CPDLC = true
 local RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = false
 local USE_SECOND_DOOR = false
 local CLOSE_DOORS = true
 local LEAVE_DOOR1_OPEN = true
-local SIMBRIEF_FLIGHTPLAN = {}
 
 local jw1_connected = false     -- set if an opensam jw at the second door is detected
 local opensam_door_status = nil
@@ -285,15 +280,15 @@ local function generate_final_loadsheet()
         title = "Final",
         gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent")),
         zfw = string.format("%0.1f", zfw_uu / 1000),
-        tow = string.format("%0.1f",  tow_uu / 1000),
-        zfwcg = zfwcg,
+        zfwcg = zfwcg, -- meaning: ls.zfwcg = zfwcg
+        tow = string.format("%0.1f", tow_uu / 1000),
         fob = string.format("%d", fob_uu),
         pax = string.format("%d", tls_no_pax[0])
     }
 
     if zfw_uu > mzfw or tow_uu > mtow then
         ls.msg = "LOAD+DISCREPANCY:+RETURN+TO+GATE"
-     else
+    else
         ls.msg = nil
     end
 
@@ -481,10 +476,6 @@ local function readSettings()
     settings.hoppie = settings.hoppie or {}    -- for backwards compatibility
     settings.doors = settings.doors or {}
 
-    if settings.simbrief.username ~= nil then
-        SIMBRIEF_ACCOUNT_NAME = settings.simbrief.username
-    end
-
     if settings.hoppie.logon ~= nil then
         HOPPIE_LOGON = settings.hoppie.logon
     end
@@ -506,7 +497,6 @@ local function saveSettings()
     log_msg("tobus: saveSettings...")
     local newSettings = {}
     newSettings.simbrief = {}
-    newSettings.simbrief.username = SIMBRIEF_ACCOUNT_NAME
     newSettings.simbrief.randomizePassengerNumber = RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
 
     newSettings.hoppie = {}
@@ -522,48 +512,29 @@ local function saveSettings()
 end
 
 local function fetchData()
-    if SIMBRIEF_ACCOUNT_NAME == nil then
-      log_msg("No simbrief username has been configured")
+    if XPLMFindDataRef("sbh/seqno") == nil then
+      log_msg("simbrief_hub plugin is not loaded")
       return false
     end
 
-    local response, statusCode = http.request("http://www.simbrief.com/api/xml.fetcher.php?username=" .. SIMBRIEF_ACCOUNT_NAME)
-
-    if statusCode ~= 200 then
-      log_msg("Simbrief API is not responding")
+    local seqno = get("sbh/seqno")
+    if seqno == 0 then
+      log_msg("simbrief data not loaded")
       return false
     end
 
-    local f = io.open(SCRIPT_DIRECTORY..SIMBRIEF_FLIGHTPLAN_FILENAME, "w")
-    f:write(response)
-    f:close()
+    log_msg("simbrief_hub seqno: " .. tostring(seqno))
 
-    log_msg("Simbrief XML data downloaded")
-    SIMBRIEF_LOADED = true
-    return true
-end
+    intendedPassengerNumber = tonumber(get("sbh/pax_count"))
+    units = get("sbh/units")
+    operator = get("sbh/icao_airline")
+    taxiFuel = tonumber(get("sbh/fuel_taxi"))
+    mzfw = tonumber(get("sbh/max_zfw"))
+    mtow = tonumber(get("sbh/max_tow"))
 
-local function readXML()
-    local xfile = xml2lua.loadFile(SCRIPT_DIRECTORY..SIMBRIEF_FLIGHTPLAN_FILENAME)
-    local parser = xml2lua.parser(handler)
-    parser:parse(xfile)
-    local ofp = handler.root.OFP
-
-    SIMBRIEF_FLIGHTPLAN["Status"] = ofp.fetch.status
-
-    if SIMBRIEF_FLIGHTPLAN["Status"] ~= "Success" then
-      log_msg("XML status is not success")
-      return false
-    end
-
-    intendedPassengerNumber = tonumber(ofp.weights.pax_count)
-    units = ofp.params.units
-    operator = ofp.general.icao_airline
-    taxiFuel = tonumber(ofp.fuel.taxi)
-    mzfw = tonumber(ofp.weights.max_zfw)
-    mtow = tonumber(ofp.weights.max_tow)
-
-    MAX_PAX_NUMBER = tonumber(ofp.aircraft.max_passengers)
+    local max_pax = get("sbh/max_passengers")
+    log_msg(string.format("max_pax: '%s'", max_pax))
+    MAX_PAX_NUMBER = tonumber(max_pax)
     if MY_PLANE_ICAO == "A319" and MAX_PAX_NUMBER == 160 then
         plane_data = plane_db["A319_160"]
         log_msg("A319 with MAX_PAX_NUMBER 160 variant loaded")
@@ -579,6 +550,8 @@ local function readXML()
         if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
         log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
     end
+    SIMBRIEF_LOADED = true
+    return true
 end
 
 local function delayed_init()
@@ -655,7 +628,6 @@ function tobusOnBuild(tobus_window, x, y)
 
         if imgui.Button("Get from simbrief") then
             if fetchData() then
-                readXML()
                 intended_no_pax_set = true
             end
         end
@@ -679,11 +651,15 @@ function tobusOnBuild(tobus_window, x, y)
                 boardingActive = true
                 nextTimeBoardingCheck = os.time()
                 openDoorsForBoarding()
+
                 if boardingSpeedMode == 1 then
                     boardInstantly()
                 else
                     log_msg(string.format("start boarding with %0.1f s/pax", secondsPerPassenger))
                 end
+
+                toggleTobusWindow()
+                return
             end
         end
 
@@ -805,10 +781,6 @@ function tobusOnBuild(tobus_window, x, y)
 
     if imgui.TreeNode("Settings") then
         local changed, newval
-        changed, newval = imgui.InputText("Simbrief Username", SIMBRIEF_ACCOUNT_NAME, 255)
-        if changed then
-            SIMBRIEF_ACCOUNT_NAME = newval
-        end
 
         changed, newval = imgui.InputText("Hoppie Logon", HOPPIE_LOGON, 255)
         if changed then
