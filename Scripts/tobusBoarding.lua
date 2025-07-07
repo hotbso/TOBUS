@@ -138,6 +138,22 @@ local plane_db = {
 local plane_data    -- of the current plane
 local log_msg       -- forward
 
+-- gaussian distribution
+local function gauss(mu, sigma)
+    -- central limit theorem with a sum of 12 should good enough here
+    local s = 0
+    for i = 1, 12 do
+        s = s + math.random()
+    end
+    return sigma * (s - 6) + mu
+end
+
+local function clamp(val, min, max)
+    if val < min then return min end
+    if val > max then return max end
+    return val
+end
+
 -- stepwise linear interpolation
 local function tab_interpolate(pax_tab, zfwcg_tab, pax_no)
     local n = #pax_tab
@@ -331,7 +347,7 @@ end
 
 local function setDefaultBoardingState()
     set("AirbusFBW/NoPax", 0)
-    set("AirbusFBW/PaxDistrib", math.random(35, 60) / 100)
+    set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
     passengersBoarded = 0
     boardingPaused = false
     boardingStopped = false
@@ -427,11 +443,12 @@ function tobusBoarding()
     end
 
     if boardingActive then
-        if passengersBoarded < intendedPassengerNumber and now > nextTimeBoardingCheck then
+        if passengersBoarded < intendedPassengerNumber and now >= nextTimeBoardingCheck then
             passengersBoarded = passengersBoarded + 1
             tls_no_pax[0] = passengersBoarded
             command_once("AirbusFBW/SetWeightAndCG")
-            nextTimeBoardingCheck = os.time() + secondsPerPassenger + math.random(-2, 2)
+            -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
+            nextTimeBoardingCheck = os.time() + secondsPerPassenger * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
         if passengersBoarded == intendedPassengerNumber and not boardingCompleted then
@@ -450,7 +467,7 @@ function tobusBoarding()
             passengersBoarded = passengersBoarded - 1
             tls_no_pax[0] = passengersBoarded
             command_once("AirbusFBW/SetWeightAndCG")
-            nextTimeBoardingCheck = os.time() + secondsPerPassenger + math.random(-2, 2)
+            nextTimeBoardingCheck = os.time() + secondsPerPassenger * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
         if passengersBoarded == 0 and not deboardingCompleted then
@@ -553,7 +570,7 @@ local function fetchData()
     end
 
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
-        local f = 0.01 * math.random(92, 103) -- lua 5.1: random takes integer args!
+        local f = clamp(gauss(1.0, 0.03), 0.96, 1.04)
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
         if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
         log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
