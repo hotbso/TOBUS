@@ -140,7 +140,7 @@ local log_msg       -- forward
 
 -- gaussian distribution
 local function gauss(mu, sigma)
-    -- central limit theorem with a sum of 12 should good enough here
+    -- central limit theorem with a sum of 12 should be good enough here
     local s = 0
     for i = 1, 12 do
         s = s + math.random()
@@ -281,7 +281,7 @@ local function generate_final_loadsheet()
     local tow_uu = zfw_uu + fob_uu - taxiFuel
 
     local zfwcg = "EFB"
-    if cargo_kg == 0 then  -- cargo is currently unsupported
+    if cargo_kg <= 20 then  -- cargo is currently unsupported, account for rounding errors
         local cg_data = plane_data.cg_data
         if cg_data ~= nil then
             local pn, pd
@@ -570,7 +570,7 @@ local function fetchData()
     end
 
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
-        local f = clamp(gauss(1.0, 0.03), 0.96, 1.04)
+        local f = clamp(gauss(1.0, 0.02), 0.96, 1.04)
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
         if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
         log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
@@ -588,6 +588,10 @@ local function delayed_init()
         MY_PLANE_ICAO = string.sub(plane_icao, 1, i0 - 1)
     else
         MY_PLANE_ICAO = plane_icao
+    end
+
+    if MY_PLANE_ICAO == "A320" then -- for A20N ceo mod
+        MY_PLANE_ICAO = "A20N"
     end
 
     tls_no_pax = dataref_table("AirbusFBW/NoPax")
