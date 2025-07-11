@@ -439,14 +439,6 @@ local function deboardInstantly()
     closeDoorsAfterBoarding()
 end
 
-local function startBoardingOrDeboarding()
-    boardingPaused = false
-    boardingActive = false
-    boardingCompleted = false
-    deboardingCompleted = false
-    deboardingPaused = false
-end
-
 local function resetAllParameters()
     passengersBoarded = 0
     pax_no_tgt = math.floor(MAX_PAX_NUMBER * 0.66)
@@ -700,14 +692,7 @@ function tobusOnBuild(tobus_window, x, y)
             end
 
             if start then
-                set("AirbusFBW/NoPax", 0)
-                set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
-                passengersBoarded = 0
-                startBoardingOrDeboarding()
-                boardingActive = true
-                nextTimeBoardingCheck = os.time()
-                open_doors()
-
+                tobus_start_boarding_cmd()
                 if instant then
                     boardInstantly()
                 else
@@ -733,7 +718,8 @@ function tobusOnBuild(tobus_window, x, y)
 
             if start then
                 passengersBoarded = pax_no_tgt
-                startBoardingOrDeboarding()
+                boardingPaused, boardingActive, boardingCompleted, deboardingCompleted, deboardingPaused =
+                    false, false, false, false, false
                 deboardingActive = true
                 nextTimeBoardingCheck = os.time()
                 open_doors()
@@ -744,7 +730,6 @@ function tobusOnBuild(tobus_window, x, y)
                 end
             end
         end
-
     end
 
     if boardingActive then
@@ -963,8 +948,24 @@ end
 
 readSettings()
 
+function tobus_start_boarding_cmd()
+    if not boardingActive and not deboardingActive and not deboardingPaused then
+        set("AirbusFBW/NoPax", 0)
+        set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
+        passengersBoarded = 0
+        boardingActive = true
+        boardingPaused, boardingCompleted, deboardingCompleted, deboardingPaused =
+            false, false, false, false
+        nextTimeBoardingCheck = os.time()
+        open_doors()
+    end
+end
+
 add_macro("TOBUS - Your Toliss Boarding Companion", "buildTobusWindow()")
 create_command("FlyWithLua/TOBUS/Toggle_tobus", "Toggle TOBUS window", "toggleTobusWindow()", "", "")
+
+add_macro("TOBUS - Start Boarding", "tobus_start_boarding_cmd()")
+create_command("FlyWithLua/TOBUS/start_boarding", "Start Boarding", "tobus_start_boarding_cmd()", "", "")
 
 do_every_frame("tobusBoarding()")
 do_often("tobus_often()")
