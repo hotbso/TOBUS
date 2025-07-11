@@ -29,9 +29,10 @@ local fmgs_init_ts = 1E20
 local prelim_loadsheet_sent = false
 
 local passengersBoarded, pax_no_tgt, boardingActive, deboardingActive, nextTimeBoardingCheck,
-      boardingSpeedMode, secondsPerPassenger,
+      boardingSpeedMode, s_per_pax,
       boardingPaused, deboardingPaused, deboardingCompleted, boardingCompleted
 
+local s_per_pax_cfg = 4 -- seconds per pax in cfg
 local SIMBRIEF_LOADED = false
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
 local HOPPIE_LOGON = ""
@@ -376,7 +377,7 @@ local function generate_prelim_loadsheet()
     send_loadsheet(ls_content)
 end
 
-local function openDoorsForBoarding()
+local function open_doors()
     passengerDoorArray[0] = 2
     if USE_SECOND_DOOR or jw1_connected then
         if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A339" then
@@ -454,9 +455,9 @@ local function resetAllParameters()
     nextTimeBoardingCheck = os.time()
     boardingSpeedMode = 3
     if USE_SECOND_DOOR then
-        secondsPerPassenger = 4
+        s_per_pax = 4
     else
-        secondsPerPassenger = 6
+        s_per_pax = 6
     end
     jw1_connected = false
     boardingPaused = false
@@ -480,7 +481,7 @@ function tobusBoarding()
             tls_no_pax[0] = passengersBoarded
             command_once("AirbusFBW/SetWeightAndCG")
             -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
-            nextTimeBoardingCheck = os.time() + secondsPerPassenger * clamp(gauss(1.0, 0.2), 0.8, 1.15)
+            nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
         if passengersBoarded == pax_no_tgt and not boardingCompleted then
@@ -499,7 +500,7 @@ function tobusBoarding()
             passengersBoarded = passengersBoarded - 1
             tls_no_pax[0] = passengersBoarded
             command_once("AirbusFBW/SetWeightAndCG")
-            nextTimeBoardingCheck = os.time() + secondsPerPassenger * clamp(gauss(1.0, 0.2), 0.8, 1.15)
+            nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
         if passengersBoarded == 0 and not deboardingCompleted then
@@ -524,6 +525,7 @@ local function readSettings()
     settings.simbrief = settings.simbrief or {}    -- for backwards compatibility
     settings.hoppie = settings.hoppie or {}    -- for backwards compatibility
     settings.doors = settings.doors or {}
+    settings.speed = settings.speed or {}
 
     if settings.hoppie.logon ~= nil then
         HOPPIE_LOGON = settings.hoppie.logon
@@ -548,6 +550,10 @@ local function readSettings()
     if settings.doors.leaveDoor1Open ~= nil then
         LEAVE_DOOR1_OPEN = settings.doors.leaveDoor1Open
     end
+
+    if settings.speed.secondsPerPax ~= nil then
+        s_per_pax_cfg = settings.speed.secondsPerPax
+    end
 end
 
 local function saveSettings()
@@ -555,6 +561,8 @@ local function saveSettings()
     local newSettings = {}
     newSettings.simbrief = {}
     newSettings.simbrief.randomizePassengerNumber = RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
+    newSettings.speed = {}
+    newSettings.speed.secondsPerPax = s_per_pax_cfg
 
     newSettings.hoppie = {}
     newSettings.hoppie.logon = HOPPIE_LOGON
@@ -682,19 +690,28 @@ function tobusOnBuild(tobus_window, x, y)
 
     if not boardingActive and not deboardingActive then
         if not deboardingPaused then
-            if imgui.Button("Start Boarding") then
+            local instant = false
+
+            local start = imgui.Button("Start Boarding")
+            imgui.SameLine()
+            if imgui.Button("Instant Boarding") then
+                start = true
+                instant = true
+            end
+
+            if start then
                 set("AirbusFBW/NoPax", 0)
                 set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
                 passengersBoarded = 0
                 startBoardingOrDeboarding()
                 boardingActive = true
                 nextTimeBoardingCheck = os.time()
-                openDoorsForBoarding()
+                open_doors()
 
-                if boardingSpeedMode == 1 then
+                if instant then
                     boardInstantly()
                 else
-                    log_msg(string.format("start boarding with %0.1f s/pax", secondsPerPassenger))
+                    log_msg(string.format("start boarding with %0.1f s/pax", s_per_pax))
                 end
 
                 toggleTobusWindow()
@@ -705,17 +722,29 @@ function tobusOnBuild(tobus_window, x, y)
         imgui.SameLine()
 
         if not boardingPaused then
-            if imgui.Button("Start Deboarding") then
+            local instant = false
+
+            local start = imgui.Button("Start Deboarding")
+            imgui.SameLine()
+            if imgui.Button("Instant Deboarding") then
+                start = true
+                instant = true
+            end
+
+            if start then
                 passengersBoarded = pax_no_tgt
                 startBoardingOrDeboarding()
                 deboardingActive = true
                 nextTimeBoardingCheck = os.time()
-                openDoorsForBoarding()
-                if boardingSpeedMode == 1 then
+                open_doors()
+                if instant then
                     deboardInstantly()
+                else
+                    log_msg(string.format("start deboarding with %0.1f s/pax", s_per_pax))
                 end
             end
         end
+
     end
 
     if boardingActive then
@@ -756,70 +785,33 @@ function tobusOnBuild(tobus_window, x, y)
     end
 
     if not boardingActive and not deboardingActive then
-        if imgui.RadioButton("Instant", boardingSpeedMode == 1) then
-            boardingSpeedMode = 1
-        end
-
-        local fastModeMinutes, realModeMinutes, label, spp
-
         jw1_connected = (opensam_door_status ~= nil and opensam_door_status[1] == 1)
-        if jw1_connected then
-            if not USE_SECOND_DOOR then
-                imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF43B54B)
+
+        if USE_SECOND_DOOR or jw1_connected then
+            imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF00AAFF)
+            if jw1_connected then
                 imgui.TextUnformatted("A second jetway is connected, using both doors")
-                imgui.PopStyleColor()
+            else
+                imgui.TextUnformatted("Using both doors")
             end
+
+            s_per_pax = s_per_pax / 2
+            imgui.PopStyleColor()
         end
 
-        -- fast mode
-        if USE_SECOND_DOOR or jw1_connected then
-            spp = 2
-        else
-            spp = 3
-        end
-
-        fastModeMinutes = math.floor((pax_no_tgt * spp) / 60 + 0.5)
-        if fastModeMinutes ~= 0 then
-            label = string.format("Fast (%d minutes)", fastModeMinutes)
-        else
-            label = "Fast (less than a minute)"
-        end
-
-        if imgui.RadioButton(label,boardingSpeedMode == 2) then
-            boardingSpeedMode = 2
-        end
-
-        if boardingSpeedMode == 2 then  -- regardless whether the button was changed or not
-            secondsPerPassenger = spp
-        end
-
-        -- real mode
-        if USE_SECOND_DOOR or jw1_connected then
-            spp = 4
-        else
-            spp = 6
-        end
-
-        realModeMinutes = math.floor((pax_no_tgt * spp) / 60 + 0.5)
-        if realModeMinutes ~= 0 then
-            label = string.format("Real (%d minutes)", realModeMinutes)
-        else
-            label = "Real (less than a minute)"
-        end
-
-        if imgui.RadioButton(label, boardingSpeedMode == 3) then
-            boardingSpeedMode = 3
-        end
-
-        if boardingSpeedMode == 3 then
-            secondsPerPassenger = spp
-        end
+        local minutes = math.floor((pax_no_tgt * s_per_pax) / 60 + 0.5)
+        imgui.TextUnformatted(string.format("Expected Boarding time: %d min", minutes))
     end
 
     imgui.Separator()
 
     if imgui.TreeNode("Settings") then
-        local changed, newval
+        local changed, newval = imgui.SliderFloat("Boarding speed", s_per_pax_cfg, 1, 6, "s / pax: %.1f")
+        if changed then
+            s_per_pax_cfg = newval
+        end
+
+        s_per_pax = s_per_pax_cfg
 
         changed, newval = imgui.InputText("Hoppie Logon", HOPPIE_LOGON, 255)
         if changed then
@@ -893,7 +885,7 @@ function buildTobusWindow()
     if (isTobusWindowDisplayed) then
         return
     end
-	tobus_window = float_wnd_create(900, 280, 1, true)
+	tobus_window = float_wnd_create(900, 295, 1, true)
 
     local leftCorner, height, width = XPLMGetScreenBoundsGlobal()
 
