@@ -14,13 +14,11 @@ local kg2lbs = 2.204622
 local wait_until_speak = 0
 local speak_string
 
-local intended_no_pax_set = false
-
 local tls_no_pax    --AirbusFBW/NoPax    -- dataref_table
 local tank_content_array -- dataref_table
 local units --simbrief
 local operator --simbrief
-local intendedPassengerNumber --simbrief
+local pax_no_tgt -- simbrief, target after several randomizations
 local taxiFuel --simbrief
 local mzfw --simbrief
 local mtow --simbrief
@@ -320,7 +318,7 @@ local function generate_prelim_loadsheet()
     end
 
     local block_fuel_kg = get("toliss_airbus/init/BlockFuel")
-    local zfw_kg = plane_data.oew + intendedPassengerNumber * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfw_kg = plane_data.oew + pax_no_tgt * 100 -- hard coded pax weight of 100kg by ToLiss
     local zfwcg = get("toliss_airbus/init/ZFWCG")
 
     local block_fuel_uu
@@ -347,7 +345,7 @@ local function generate_prelim_loadsheet()
         zfwcg = string.format("%0.1f", zfwcg), -- meaning: ls.zfwcg = zfwcg
         tow = string.format("%0.1f", tow_uu / 1000),
         fob = string.format("%d", block_fuel_uu),
-        pax = string.format("%d", intendedPassengerNumber)
+        pax = string.format("%d", pax_no_tgt)
     }
 
     if zfw_uu > mzfw or tow_uu > mtow then
@@ -426,12 +424,11 @@ local function playChimeSound(boarding)
     end
 
     wait_until_speak = os.time() + 0.5
-    intended_no_pax_set = false
 end
 
 local function boardInstantly()
-    set("AirbusFBW/NoPax", intendedPassengerNumber)
-    passengersBoarded = intendedPassengerNumber
+    set("AirbusFBW/NoPax", pax_no_tgt)
+    passengersBoarded = pax_no_tgt
     boardingActive = true
     boardingCompleted = false
     command_once("AirbusFBW/SetWeightAndCG")    -- that runs async so we need postprocessing in the draw loop
@@ -446,27 +443,6 @@ local function deboardInstantly()
     closeDoorsAfterBoarding()
 end
 
-local function setRandomNumberOfPassengers()
-    local passengerDistributionGroup = math.random(0, 100)
-
-    if passengerDistributionGroup < 2 then
-        intendedPassengerNumber = math.random(math.floor(MAX_PAX_NUMBER * 0.22), math.floor(MAX_PAX_NUMBER * 0.54))
-        return
-    end
-
-    if passengerDistributionGroup < 16 then
-        intendedPassengerNumber = math.random(math.floor(MAX_PAX_NUMBER * 0.54), math.floor(MAX_PAX_NUMBER * 0.72))
-        return
-    end
-
-    if passengerDistributionGroup < 58 then
-        intendedPassengerNumber = math.random(math.floor(MAX_PAX_NUMBER * 0.72), math.floor(MAX_PAX_NUMBER * 0.87))
-        return
-    end
-
-    intendedPassengerNumber = math.random(math.floor(MAX_PAX_NUMBER * 0.87), MAX_PAX_NUMBER)
-end
-
 local function startBoardingOrDeboarding()
     boardingPaused = false
     boardingActive = false
@@ -477,7 +453,7 @@ end
 
 local function resetAllParameters()
     passengersBoarded = 0
-    intendedPassengerNumber = math.floor(MAX_PAX_NUMBER * 0.66)
+    pax_no_tgt = math.floor(MAX_PAX_NUMBER * 0.66)
     boardingActive = false
     deboardingActive = false
     nextTimeBoardingCheck = os.time()
@@ -492,8 +468,6 @@ local function resetAllParameters()
     deboardingPaused = false
     deboardingCompleted = false
     boardingCompleted = false
-    isTobusWindowDisplayed = false
-    isSettingsWindowDisplayed = false
 end
 
 -- frame loop, efficient coding please
@@ -506,7 +480,7 @@ function tobusBoarding()
     end
 
     if boardingActive then
-        if passengersBoarded < intendedPassengerNumber and now >= nextTimeBoardingCheck then
+        if passengersBoarded < pax_no_tgt and now >= nextTimeBoardingCheck then
             passengersBoarded = passengersBoarded + 1
             tls_no_pax[0] = passengersBoarded
             command_once("AirbusFBW/SetWeightAndCG")
@@ -514,7 +488,7 @@ function tobusBoarding()
             nextTimeBoardingCheck = os.time() + secondsPerPassenger * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
-        if passengersBoarded == intendedPassengerNumber and not boardingCompleted then
+        if passengersBoarded == pax_no_tgt and not boardingCompleted then
             boardingCompleted = true
             boardingActive = false
             closeDoorsAfterBoarding()
@@ -613,7 +587,7 @@ local function fetchData()
 
     log_msg("simbrief_hub seqno: " .. tostring(seqno))
 
-    intendedPassengerNumber = tonumber(get("sbh/pax_count"))
+    pax_no_tgt = tonumber(get("sbh/pax_count"))
     units = get("sbh/units")
     operator = get("sbh/icao_airline")
     taxiFuel = tonumber(get("sbh/fuel_taxi"))
@@ -634,9 +608,9 @@ local function fetchData()
 
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
         local f = clamp(gauss(1.0, 0.025), 0.96, 1.04)
-	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
-        if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
-        log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
+	    pax_no_tgt = math.floor(pax_no_tgt * f + 0.5)
+        if pax_no_tgt > MAX_PAX_NUMBER then pax_no_tgt = MAX_PAX_NUMBER end
+        log_msg(string.format("randomized pax_no_tgt: %d", pax_no_tgt))
     end
     SIMBRIEF_LOADED = true
     return true
@@ -680,13 +654,13 @@ end
 function tobusOnBuild(tobus_window, x, y)
     if boardingActive and not boardingCompleted then
         imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF95FFF8)
-        imgui.TextUnformatted(string.format("Boarding in progress %s / %s boarded", passengersBoarded, intendedPassengerNumber))
+        imgui.TextUnformatted(string.format("Boarding in progress %s / %s boarded", passengersBoarded, pax_no_tgt))
         imgui.PopStyleColor()
     end
 
     if deboardingActive and not deboardingCompleted then
         imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF95FFF8)
-        imgui.TextUnformatted(string.format("Deboarding in progress %s / %s deboarded", passengersBoarded, intendedPassengerNumber))
+        imgui.TextUnformatted(string.format("Deboarding in progress %s / %s deboarded", passengersBoarded, pax_no_tgt))
         imgui.PopStyleColor()
     end
 
@@ -702,42 +676,20 @@ function tobusOnBuild(tobus_window, x, y)
         imgui.PopStyleColor()
     end
 
+    local changed, val
     if not (boardingActive or deboardingActive) then
-        local pn = tls_no_pax[0]
-        if not intended_no_pax_set or passengersBoarded ~= pn  then
-            intendedPassengerNumber = pn
-            passengersBoarded = pn
+        changed, val = imgui.SliderInt("Passengers number", pax_no_tgt, 0, MAX_PAX_NUMBER, "Value: %d")
+
+        if changed then
+            pax_no_tgt = val
         end
-
-        local passengeraNumberChanged, newPassengerNumber
-        = imgui.SliderInt("Passengers number", intendedPassengerNumber, 0, MAX_PAX_NUMBER, "Value: %d")
-
-        if passengeraNumberChanged then
-            intendedPassengerNumber = newPassengerNumber
-            intended_no_pax_set = true
-        end
-        imgui.SameLine()
-
-        if imgui.Button("Get from simbrief") then
-            if fetchData() then
-                intended_no_pax_set = true
-            end
-        end
-
-        if imgui.Button("Set random passenger number") then
-            setRandomNumberOfPassengers()
-            intended_no_pax_set = true
-        end
-
     end
 
     if not boardingActive and not deboardingActive then
-        imgui.SameLine()
-
         if not deboardingPaused then
             if imgui.Button("Start Boarding") then
                 set("AirbusFBW/NoPax", 0)
-                set("AirbusFBW/PaxDistrib", math.random(35, 60) / 100)
+                set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
                 passengersBoarded = 0
                 startBoardingOrDeboarding()
                 boardingActive = true
@@ -759,7 +711,7 @@ function tobusOnBuild(tobus_window, x, y)
 
         if not boardingPaused then
             if imgui.Button("Start Deboarding") then
-                passengersBoarded = intendedPassengerNumber
+                passengersBoarded = pax_no_tgt
                 startBoardingOrDeboarding()
                 deboardingActive = true
                 nextTimeBoardingCheck = os.time()
@@ -831,7 +783,7 @@ function tobusOnBuild(tobus_window, x, y)
             spp = 3
         end
 
-        fastModeMinutes = math.floor((intendedPassengerNumber * spp) / 60 + 0.5)
+        fastModeMinutes = math.floor((pax_no_tgt * spp) / 60 + 0.5)
         if fastModeMinutes ~= 0 then
             label = string.format("Fast (%d minutes)", fastModeMinutes)
         else
@@ -853,7 +805,7 @@ function tobusOnBuild(tobus_window, x, y)
             spp = 6
         end
 
-        realModeMinutes = math.floor((intendedPassengerNumber * spp) / 60 + 0.5)
+        realModeMinutes = math.floor((pax_no_tgt * spp) / 60 + 0.5)
         if realModeMinutes ~= 0 then
             label = string.format("Real (%d minutes)", realModeMinutes)
         else
@@ -985,11 +937,17 @@ function tobus_often()
     elseif not prelim_loadsheet_sent and now > fmgs_init_ts + 5 then
         delayed_init()
         fetchData()
-        intended_no_pax_set = true
         if SIMBRIEF_LOADED then
             log_msg("Send prelim loadsheet")
             generate_prelim_loadsheet()
             prelim_loadsheet_sent = true
+            -- after the prelim load sheet a few no shows
+            if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
+                pax_no_tgt = math.random(pax_no_tgt - 3, pax_no_tgt)
+                if pax_no_tgt < 0 then
+                    pax_no_tgt = 0
+                end
+            end
         end
     end
 
