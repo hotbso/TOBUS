@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "2.1.0-hotbso"
+local VERSION = "3.0.0-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -25,6 +25,10 @@ local taxiFuel --simbrief
 local mzfw --simbrief
 local mtow --simbrief
 local MAX_PAX_NUMBER = 224
+
+local fmgs_flight_no = "" -- FMGS flight number
+local fmgs_init_ts = 1E20
+local prelim_loadsheet_sent = false
 
 local SIMBRIEF_LOADED = false
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
@@ -196,42 +200,25 @@ local function format_ls_row(label, value, digit)
     return label .. string.rep(".", digit - #label - #value) .. " @" .. value .. "@ "
 end
 
-local function send_loadsheet(ls)
+local function send_loadsheet(ls_content)
 
-    local loadSheetContent = table.concat({
-        "Loadsheet @" .. ls.title .. "@ " .. os.date("%H:%M"),
-        format_ls_row("PAX", ls.pax, 9),
-        format_ls_row("ZFW",  ls.zfw, 9),
-        format_ls_row("ZFWCG", ls.zfwcg, 9),
-        format_ls_row("TOW", ls.tow, 9),
-        format_ls_row("GWCG", ls.gwcg, 9),
-        format_ls_row("FOB", ls.fob, 9),
-        format_ls_row("UNITS", units, 9),
-    }, "\n")
-
-    if ls.msg ~= nil then
-        loadSheetContent = loadSheetContent .. "\n" .. ls.msg
-    end
-
-    loadSheetContent = loadSheetContent:gsub("\n", "%%0A")
-
-    local ident = get("toliss_airbus/init/flight_no")   -- from INIT page
+    ls_content = ls_content:gsub("\n", "%%0A")
 
     local payload
     if HOPPIE_CPDLC then
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
             HOPPIE_LOGON,
             operator .. "OPS",
-            ident,
+            fmgs_flight_no,
             'cpdlc',
-            "/data2/313//NE/" .. loadSheetContent)
+            "/data2/313//NE/" .. ls_content)
     else
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
             HOPPIE_LOGON,
             operator .. "OPS",
-            ident,
+            fmgs_flight_no,
             'telex',
-            loadSheetContent)
+            ls_content)
     end
 
     log_msg(payload:gsub("logon=[^&]+", "logon=***"))
@@ -308,7 +295,83 @@ local function generate_final_loadsheet()
         ls.msg = nil
     end
 
-    send_loadsheet(ls)
+    local ls_content = table.concat({
+        "Loadsheet @" .. ls.title .. "@ " .. os.date("%H:%M"),
+        format_ls_row("PAX", ls.pax, 9),
+        format_ls_row("ZFW",  ls.zfw, 9),
+        format_ls_row("ZFWCG", ls.zfwcg, 9),
+        format_ls_row("TOW", ls.tow, 9),
+        format_ls_row("GWCG", ls.gwcg, 9),
+        format_ls_row("FOB", ls.fob, 9),
+        format_ls_row("UNITS", units, 9),
+    }, "\n")
+
+    if ls.msg ~= nil then
+        ls_content = ls_content .. "\n" .. ls.msg
+    end
+
+    send_loadsheet(ls_content)
+end
+
+local function generate_prelim_loadsheet()
+    if not SIMBRIEF_LOADED or HOPPIE_LOGON == "" then
+        log_msg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
+        return
+    end
+
+    local block_fuel_kg = get("toliss_airbus/init/BlockFuel")
+    local zfw_kg = plane_data.oew + intendedPassengerNumber * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfwcg = get("toliss_airbus/init/ZFWCG")
+
+    local block_fuel_uu
+    if units == "lbs" then
+        block_fuel_uu = 100 * math.floor(block_fuel_kg * kg2lbs / 100 + 0.35)    -- conservative rounding
+    else
+        block_fuel_uu = 100 * math.floor(block_fuel_kg / 100 + 0.35)
+    end
+
+    local zfw_uu = zfw_kg
+    if units == "lbs" then
+        zfw_uu = zfw_kg * kg2lbs
+    end
+
+    log_msg(string.format("block_fuel_kg: %d, block_fuel_uu: %d, zfw_kg: %d, zfw_uu: %d",
+            block_fuel_kg, block_fuel_uu, zfw_kg, zfw_uu))
+
+    local tow_uu = zfw_uu + block_fuel_uu - taxiFuel
+
+    local ls = {    -- in user units
+        title = "Prelim",
+        -- gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent")),
+        zfw = string.format("%0.1f", zfw_uu / 1000),
+        zfwcg = string.format("%0.1f", zfwcg), -- meaning: ls.zfwcg = zfwcg
+        tow = string.format("%0.1f", tow_uu / 1000),
+        fob = string.format("%d", block_fuel_uu),
+        pax = string.format("%d", intendedPassengerNumber)
+    }
+
+    if zfw_uu > mzfw or tow_uu > mtow then
+        ls.msg = "LOAD+DISCREPANCY:+CHECK"
+    else
+        ls.msg = nil
+    end
+
+    local ls_content = table.concat({
+        "Loadsheet @" .. ls.title .. "@ " .. os.date("%H:%M"),
+        format_ls_row("PAX", ls.pax, 9),
+        format_ls_row("ZFW",  ls.zfw, 9),
+        format_ls_row("ZFWCG", ls.zfwcg, 9),
+        format_ls_row("TOW", ls.tow, 9),
+        -- format_ls_row("GWCG", ls.gwcg, 9),
+        format_ls_row("BFUEL", ls.fob, 9),
+        format_ls_row("UNITS", units, 9),
+    }, "\n")
+
+    if ls.msg ~= nil then
+        ls_content = ls_content .. "\n" .. ls.msg
+    end
+
+    send_loadsheet(ls_content)
 end
 
 local function openDoorsForBoarding()
@@ -570,7 +633,7 @@ local function fetchData()
     end
 
     if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
-        local f = clamp(gauss(1.0, 0.02), 0.96, 1.04)
+        local f = clamp(gauss(1.0, 0.025), 0.96, 1.04)
 	    intendedPassengerNumber = math.floor(intendedPassengerNumber * f)
         if intendedPassengerNumber > MAX_PAX_NUMBER then intendedPassengerNumber = MAX_PAX_NUMBER end
         log_msg(string.format("randomized intendedPassengerNumber: %d", intendedPassengerNumber))
@@ -907,11 +970,35 @@ function toggleTobusWindow()
     buildTobusWindow()
 end
 
--- for building and debugging plane_db
-function tobus_zfwcg_often()
-    if plane_data == nil then return end
-    local pax_no, pax_distrib, zfwcg = get_zfwcg(plane_data.cg_data)
-    log_msg(string.format("%s, distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f",plane_data.cfg, pax_distrib, pax_no, zfwcg))
+-- low freq actions
+function tobus_often()
+    local now = os.time()
+
+    -- check if FMGS was inited
+    if fmgs_flight_no == "" then
+        fmgs_flight_no = get("toliss_airbus/init/flight_no")
+        if fmgs_flight_no ~= "" then
+            log_msg("FMGS inited: " .. fmgs_flight_no)
+            fmgs_init_ts = now
+            prelim_loadsheet_sent = false
+        end
+    elseif not prelim_loadsheet_sent and now > fmgs_init_ts + 5 then
+        delayed_init()
+        fetchData()
+        intended_no_pax_set = true
+        if SIMBRIEF_LOADED then
+            log_msg("Send prelim loadsheet")
+            generate_prelim_loadsheet()
+            prelim_loadsheet_sent = true
+        end
+    end
+
+    -- for debugging plane_data tables
+    if false then
+        if plane_data == nil then return end
+        local pax_no, pax_distrib, zfwcg = get_zfwcg(plane_data.cg_data)
+        log_msg(string.format("%s, distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f",plane_data.cfg, pax_distrib, pax_no, zfwcg))
+    end
 end
 
 function log_msg(str) -- custom log function
@@ -933,9 +1020,8 @@ readSettings()
 
 add_macro("TOBUS - Your Toliss Boarding Companion", "buildTobusWindow()")
 create_command("FlyWithLua/TOBUS/Toggle_tobus", "Toggle TOBUS window", "toggleTobusWindow()", "", "")
-do_every_frame("tobusBoarding()")
 
--- for building and debugging plane_db
--- do_often("tobus_zfwcg_often()")
+do_every_frame("tobusBoarding()")
+do_often("tobus_often()")
 
 end
