@@ -28,6 +28,10 @@ local fmgs_flight_no = "" -- FMGS flight number
 local fmgs_init_ts = 1E20
 local prelim_loadsheet_sent = false
 
+local passengersBoarded, pax_no_tgt, boardingActive, deboardingActive, nextTimeBoardingCheck,
+      boardingSpeedMode, secondsPerPassenger,
+      boardingPaused, deboardingPaused, deboardingCompleted, boardingCompleted
+
 local SIMBRIEF_LOADED = false
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
 local HOPPIE_LOGON = ""
@@ -404,15 +408,6 @@ local function closeDoorsAfterBoarding()
     end
     cargoDoorArray[0] = 0
     cargoDoorArray[1] = 0
-end
-
-local function setDefaultBoardingState()
-    set("AirbusFBW/NoPax", 0)
-    set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
-    passengersBoarded = 0
-    boardingPaused = false
-    boardingStopped = false
-    boardingActive = true
 end
 
 local function playChimeSound(boarding)
