@@ -717,12 +717,7 @@ function tobusOnBuild(tobus_window, x, y)
             end
 
             if start then
-                passengersBoarded = pax_no_tgt
-                boardingPaused, boardingActive, boardingCompleted, deboardingCompleted, deboardingPaused =
-                    false, false, false, false, false
-                deboardingActive = true
-                nextTimeBoardingCheck = os.time()
-                open_doors()
+                tobus_start_deboarding_cmd()
                 if instant then
                     deboardInstantly()
                 else
@@ -961,11 +956,25 @@ function tobus_start_boarding_cmd()
     end
 end
 
+function tobus_start_deboarding_cmd()
+    if not boardingActive and not deboardingActive and not boardingPaused then
+        passengersBoarded = pax_no_tgt
+        boardingPaused, boardingActive, boardingCompleted, deboardingCompleted, deboardingPaused =
+            false, false, false, false, false
+        deboardingActive = true
+        nextTimeBoardingCheck = os.time()
+        open_doors()
+    end
+end
+
 add_macro("TOBUS - Your Toliss Boarding Companion", "buildTobusWindow()")
 create_command("FlyWithLua/TOBUS/Toggle_tobus", "Toggle TOBUS window", "toggleTobusWindow()", "", "")
 
 add_macro("TOBUS - Start Boarding", "tobus_start_boarding_cmd()")
 create_command("FlyWithLua/TOBUS/start_boarding", "Start Boarding", "tobus_start_boarding_cmd()", "", "")
+
+add_macro("TOBUS - Start Deboarding", "tobus_start_deboarding_cmd()")
+create_command("FlyWithLua/TOBUS/start_deboarding", "Start Deboarding", "tobus_start_deboarding_cmd()", "", "")
 
 do_every_frame("tobusBoarding()")
 do_often("tobus_often()")
