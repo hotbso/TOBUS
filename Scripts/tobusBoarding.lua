@@ -896,7 +896,8 @@ function tobus_often()
     -- check if FMGS was inited
     if fmgs_flight_no == "" then
         fmgs_flight_no = get("toliss_airbus/init/flight_no")
-        if fmgs_flight_no ~= "" then
+        -- if the beacon light is on it's likely a situation load
+        if fmgs_flight_no ~= "" and 0 == get("sim/cockpit/electrical/beacon_lights_on") then
             log_msg("FMGS inited: " .. fmgs_flight_no)
             fmgs_init_ts = now
             prelim_loadsheet_sent = false
