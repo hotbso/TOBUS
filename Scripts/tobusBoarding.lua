@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.0.0-hotbso"
+local VERSION = "3.1.0-b1-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -14,7 +14,7 @@ local kg2lbs = 2.204622
 local wait_until_speak = 0
 local speak_string
 
-local tls_no_pax    --AirbusFBW/NoPax    -- dataref_table
+local tls_pax_no    -- dataref_table AirbusFBW/NoPax
 local tank_content_array -- dataref_table
 local units --simbrief
 local operator --simbrief
@@ -25,12 +25,14 @@ local mtow --simbrief
 local MAX_PAX_NUMBER = 224
 
 local fmgs_flight_no = "" -- FMGS flight number
+local tls_flight_no       -- dataref_table for that
+
 local fmgs_init_ts = 1E20
 local prelim_loadsheet_sent = false
 
-local passengersBoarded, pax_no_tgt, boardingActive, deboardingActive, nextTimeBoardingCheck,
-      boardingSpeedMode, s_per_pax,
-      boardingPaused, deboardingPaused, deboardingCompleted, boardingCompleted
+local pax_no_cur, pax_no_tgt, pax_no_deboarding,
+      boardingActive, deboardingActive, nextTimeBoardingCheck,
+      s_per_pax, boardingPaused, deboardingPaused, deboardingCompleted, boardingCompleted
 
 local s_per_pax_cfg = 4 -- seconds per pax in cfg
 local SIMBRIEF_LOADED = false
@@ -47,6 +49,8 @@ local opensam_door_status = nil
 if nil ~= XPLMFindDataRef("opensam/jetway/door/status") then
 	opensam_door_status = dataref_table("opensam/jetway/door/status")
 end
+
+local delayed_init_delay = 10   -- let the dust settle, seconds before delayed init
 
 local plane_db = {
     A319_160 = {
@@ -259,7 +263,7 @@ local function generate_final_loadsheet()
         fob_uu = 100 * math.floor(fob_kg / 100 + 0.35)
     end
 
-    local zfw_kg = plane_data.oew + cargo_kg + tls_no_pax[0] * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfw_kg = plane_data.oew + cargo_kg + tls_pax_no[0] * 100 -- hard coded pax weight of 100kg by ToLiss
     local zfw_uu = zfw_kg
     if units == "lbs" then
         zfw_uu = zfw_kg * kg2lbs
@@ -289,7 +293,7 @@ local function generate_final_loadsheet()
         zfwcg = zfwcg, -- meaning: ls.zfwcg = zfwcg
         tow = string.format("%0.1f", tow_uu / 1000),
         fob = string.format("%d", fob_uu),
-        pax = string.format("%d", tls_no_pax[0])
+        pax = string.format("%d", tls_pax_no[0])
     }
 
     if zfw_uu > mzfw or tow_uu > mtow then
@@ -424,14 +428,14 @@ end
 
 local function boardInstantly()
     set("AirbusFBW/NoPax", pax_no_tgt)
-    passengersBoarded = pax_no_tgt
+    pax_no_cur = pax_no_tgt
     boardingActive = true
     boardingCompleted = false
     command_once("AirbusFBW/SetWeightAndCG")    -- that runs async so we need postprocessing in the draw loop
 end
 
 local function deboardInstantly()
-    set("AirbusFBW/NoPax", 0)
+    tls_pax_no[0] = 0
     deboardingActive = false
     deboardingCompleted = true
     playChimeSound(false)
@@ -440,16 +444,15 @@ local function deboardInstantly()
 end
 
 local function resetAllParameters()
-    passengersBoarded = 0
-    pax_no_tgt = math.floor(MAX_PAX_NUMBER * 0.66)
+    pax_no_cur = 0
+    pax_no_tgt = 0
     boardingActive = false
     deboardingActive = false
     nextTimeBoardingCheck = os.time()
-    boardingSpeedMode = 3
     if USE_SECOND_DOOR then
-        s_per_pax = 4
+        s_per_pax = s_per_pax_cfg / 2
     else
-        s_per_pax = 6
+        s_per_pax = s_per_pax_cfg
     end
     jw1_connected = false
     boardingPaused = false
@@ -468,15 +471,15 @@ function tobusBoarding()
     end
 
     if boardingActive then
-        if passengersBoarded < pax_no_tgt and now >= nextTimeBoardingCheck then
-            passengersBoarded = passengersBoarded + 1
-            tls_no_pax[0] = passengersBoarded
+        if pax_no_cur < pax_no_tgt and now >= nextTimeBoardingCheck then
+            pax_no_cur = pax_no_cur + 1
+            tls_pax_no[0] = pax_no_cur
             command_once("AirbusFBW/SetWeightAndCG")
             -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
             nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
-        if passengersBoarded == pax_no_tgt and not boardingCompleted then
+        if pax_no_cur == pax_no_tgt and not boardingCompleted then
             boardingCompleted = true
             boardingActive = false
             closeDoorsAfterBoarding()
@@ -488,14 +491,14 @@ function tobusBoarding()
         end
 
     elseif deboardingActive then
-        if passengersBoarded > 0 and now >= nextTimeBoardingCheck then
-            passengersBoarded = passengersBoarded - 1
-            tls_no_pax[0] = passengersBoarded
+        if pax_no_cur > 0 and now >= nextTimeBoardingCheck then
+            pax_no_cur = pax_no_cur - 1
+            tls_pax_no[0] = pax_no_cur
             command_once("AirbusFBW/SetWeightAndCG")
             nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
-        if passengersBoarded == 0 and not deboardingCompleted then
+        if pax_no_cur == 0 and not deboardingCompleted then
             deboardingCompleted = true
             deboardingActive = false
             closeDoorsAfterBoarding()
@@ -612,7 +615,7 @@ local function fetchData()
 end
 
 local function delayed_init()
-    if tls_no_pax ~= nil then return end
+    if tls_pax_no ~= nil then return end
 
     local plane_icao = get("sim/aircraft/view/acf_ICAO")
     local i0 = string.find(plane_icao, "\0")
@@ -626,7 +629,9 @@ local function delayed_init()
         MY_PLANE_ICAO = "A20N"
     end
 
-    tls_no_pax = dataref_table("AirbusFBW/NoPax")
+    tls_flight_no = dataref_table("toliss_airbus/init/flight_no")
+
+    tls_pax_no = dataref_table("AirbusFBW/NoPax")
     passengerDoorArray = dataref_table("AirbusFBW/PaxDoorModeArray")
     cargoDoorArray = dataref_table("AirbusFBW/CargoDoorModeArray")
     tank_content_array = dataref_table("toliss_airbus/fuelTankContent_kgs")
@@ -649,13 +654,13 @@ end
 function tobusOnBuild(tobus_window, x, y)
     if boardingActive and not boardingCompleted then
         imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF95FFF8)
-        imgui.TextUnformatted(string.format("Boarding in progress %s / %s boarded", passengersBoarded, pax_no_tgt))
+        imgui.TextUnformatted(string.format("Boarding in progress %s / %s boarded", pax_no_cur, pax_no_tgt))
         imgui.PopStyleColor()
     end
 
     if deboardingActive and not deboardingCompleted then
         imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF95FFF8)
-        imgui.TextUnformatted(string.format("Deboarding in progress %s / %s deboarded", passengersBoarded, pax_no_tgt))
+        imgui.TextUnformatted(string.format("Deboarding in progress %s / %s deboarded", pax_no_cur, pax_no_deboarding))
         imgui.PopStyleColor()
     end
 
@@ -671,41 +676,49 @@ function tobusOnBuild(tobus_window, x, y)
         imgui.PopStyleColor()
     end
 
-    local changed, val
-    if not (boardingActive or deboardingActive) then
-        changed, val = imgui.SliderInt("Passengers number", pax_no_tgt, 0, MAX_PAX_NUMBER, "Value: %d")
+    if fmgs_flight_no == "" then
+        imgui.PushStyleColor(imgui.constant.Col.Text, 0xFFFF4488)
+        imgui.TextUnformatted("Simbrief data is only available after FMGS init!")
+        imgui.PopStyleColor()
+    else
+        local changed, val
+        if not (boardingActive or deboardingActive) then
+            changed, val = imgui.SliderInt("Passengers number", pax_no_tgt, 0, MAX_PAX_NUMBER, "Value: %d")
 
-        if changed then
-            pax_no_tgt = val
+            if changed then
+                pax_no_tgt = val
+            end
+        end
+
+        if not boardingActive and not deboardingActive then
+            if not deboardingPaused then
+                local instant = false
+
+                local start = imgui.Button("Start Boarding")
+                imgui.SameLine()
+                if imgui.Button("Instant Boarding") then
+                    start = true
+                    instant = true
+                end
+
+                if start then
+                    tobus_start_boarding_cmd()
+                    if instant then
+                        boardInstantly()
+                    else
+                        log_msg(string.format("start boarding with %0.1f s/pax", s_per_pax))
+                    end
+
+                    toggleTobusWindow()
+                    return
+                end
+            end
+
+            imgui.SameLine()
         end
     end
 
     if not boardingActive and not deboardingActive then
-        if not deboardingPaused then
-            local instant = false
-
-            local start = imgui.Button("Start Boarding")
-            imgui.SameLine()
-            if imgui.Button("Instant Boarding") then
-                start = true
-                instant = true
-            end
-
-            if start then
-                tobus_start_boarding_cmd()
-                if instant then
-                    boardInstantly()
-                else
-                    log_msg(string.format("start boarding with %0.1f s/pax", s_per_pax))
-                end
-
-                toggleTobusWindow()
-                return
-            end
-        end
-
-        imgui.SameLine()
-
         if not boardingPaused then
             local instant = false
 
@@ -891,19 +904,38 @@ end
 
 -- low freq actions
 function tobus_often()
+    delayed_init_delay = delayed_init_delay - 1
+    if delayed_init_delay >= 0 then return end
+
+    delayed_init()
+
     local now = os.time()
 
-    -- check if FMGS was inited
-    if fmgs_flight_no == "" then
-        fmgs_flight_no = get("toliss_airbus/init/flight_no")
+    -- check if FMGS flight_no was changed
+    local fn  = tls_flight_no[0]
+    if fmgs_flight_no ~= fn then    -- change
+        if fn == "" then -- FMGS reset or fn cleared
+            log_msg("FMGS reset")
+            fmgs_flight_no = fn
+            SIMBRIEF_LOADED = false
+            fmgs_init_ts = 1E20
+            return
+        end
+
+        -- FMGS init
+        fmgs_flight_no = fn
+
         -- if the beacon light is on it's likely a situation load
         if fmgs_flight_no ~= "" and 0 == get("sim/cockpit/electrical/beacon_lights_on") then
             log_msg("FMGS inited: " .. fmgs_flight_no)
+            SIMBRIEF_LOADED = false
             fmgs_init_ts = now
             prelim_loadsheet_sent = false
         end
-    elseif not prelim_loadsheet_sent and now > fmgs_init_ts + 5 then
-        delayed_init()
+        return
+    end
+
+    if not prelim_loadsheet_sent and now > fmgs_init_ts + 5 then
         fetchData()
         if SIMBRIEF_LOADED then
             log_msg("Send prelim loadsheet")
@@ -948,7 +980,7 @@ function tobus_start_boarding_cmd()
     if not boardingActive and not deboardingActive and not deboardingPaused then
         set("AirbusFBW/NoPax", 0)
         set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
-        passengersBoarded = 0
+        pax_no_cur = 0
         boardingActive = true
         boardingPaused, boardingCompleted, deboardingCompleted, deboardingPaused =
             false, false, false, false
@@ -959,7 +991,8 @@ end
 
 function tobus_start_deboarding_cmd()
     if not boardingActive and not deboardingActive and not boardingPaused then
-        passengersBoarded = pax_no_tgt
+        pax_no_deboarding = tls_pax_no[0]
+        pax_no_cur = pax_no_deboarding
         boardingPaused, boardingActive, boardingCompleted, deboardingCompleted, deboardingPaused =
             false, false, false, false, false
         deboardingActive = true
