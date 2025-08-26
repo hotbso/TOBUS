@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.1.0-b1-hotbso"
+local VERSION = "3.1.0-hotbso"
 
  --http library import
 local socket = require "socket"
