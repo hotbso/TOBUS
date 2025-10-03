@@ -1,9 +1,9 @@
-if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A321" or
+if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE_ICAO == "A321" or
    PLANE_ICAO == "A21N" or PLANE_ICAO == "A346" or PLANE_ICAO == "A339"
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.1.0-hotbso"
+local VERSION = "3.2.0-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -74,6 +74,18 @@ local plane_db = {
             zfwcg_035 = {28.6, 25.6, 23.8, 23.1, 23.2, 24.1, 25.7, 28.6},
             zfwcg_050 = {28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6, 28.6},
             zfwcg_060 = {28.6, 30.6, 31.8, 32.3, 32.2, 31.6, 30.5, 28.6}
+        }
+    },
+
+    A320 = {
+        cfg = "A320",
+        max_pax = 186,
+        oew = 43420,
+        cg_data = {
+            pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  186},
+            zfwcg_035 = {28.5, 24.4, 21.9, 20.7, 20.8, 21.8, 23.7, 26.3, 28.0 },
+            zfwcg_050 = {28.5, 28.4, 28.4, 28.3, 28.3, 28.3, 28.2, 28.0, 28.0 },
+            zfwcg_060 = {28.5, 31.1, 32.7, 33.4, 33.3, 32.6, 31.1, 29.3, 28.0 }
         }
     },
 
@@ -384,7 +396,7 @@ end
 local function open_doors()
     passengerDoorArray[0] = 2
     if USE_SECOND_DOOR or jw1_connected then
-        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A339" then
+        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A339" then
             passengerDoorArray[2] = 2
         end
         if MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" or MY_PLANE_ICAO == "A346" then
@@ -403,7 +415,7 @@ local function closeDoorsAfterBoarding()
     end
 
     if USE_SECOND_DOOR or jw1_connected then
-        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A339" then
+        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A339" then
             passengerDoorArray[2] = 0
         end
 
@@ -623,10 +635,6 @@ local function delayed_init()
         MY_PLANE_ICAO = string.sub(plane_icao, 1, i0 - 1)
     else
         MY_PLANE_ICAO = plane_icao
-    end
-
-    if MY_PLANE_ICAO == "A320" then -- for A20N ceo mod
-        MY_PLANE_ICAO = "A20N"
     end
 
     tls_flight_no = dataref_table("toliss_airbus/init/flight_no")
