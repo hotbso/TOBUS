@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.2.0-hotbso"
+local VERSION = "3.2.1-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -79,7 +79,7 @@ local plane_db = {
 
     A320 = {
         cfg = "A320",
-        max_pax = 186,
+        max_pax = 176,
         oew = 43420,
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  186},
