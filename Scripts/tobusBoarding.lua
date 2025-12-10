@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.2.1-hotbso"
+local VERSION = "3.2.2-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -939,11 +939,12 @@ function tobus_often()
             SIMBRIEF_LOADED = false
             fmgs_init_ts = now
             prelim_loadsheet_sent = false
+            command_once("sbh/fetch")
         end
         return
     end
 
-    if not prelim_loadsheet_sent and now > fmgs_init_ts + 5 then
+    if not prelim_loadsheet_sent and now > fmgs_init_ts + 8 then
         fetchData()
         if SIMBRIEF_LOADED then
             log_msg("Send prelim loadsheet")
