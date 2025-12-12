@@ -30,6 +30,11 @@ local tls_flight_no       -- dataref_table for that
 local fmgs_init_ts = 1E20
 local prelim_loadsheet_sent = false
 
+-- delayed "boarding completed" processing
+local boarding_completed_ts = 1E20
+local final_loadsheet_sent = false
+local doors_closed = false
+
 local pax_no_cur, pax_no_tgt, pax_no_deboarding,
       boardingActive, deboardingActive, nextTimeBoardingCheck,
       s_per_pax, boardingPaused, deboardingPaused, deboardingCompleted, boardingCompleted
@@ -407,7 +412,7 @@ local function open_doors()
     cargoDoorArray[1] = 2
 end
 
-local function closeDoorsAfterBoarding()
+local function close_doors()
     if not CLOSE_DOORS then return end
 
     if not LEAVE_DOOR1_OPEN then
@@ -452,7 +457,7 @@ local function deboardInstantly()
     deboardingCompleted = true
     playChimeSound(false)
     command_once("AirbusFBW/SetWeightAndCG")
-    closeDoorsAfterBoarding()
+    close_doors()
 end
 
 local function resetAllParameters()
@@ -471,55 +476,6 @@ local function resetAllParameters()
     deboardingPaused = false
     deboardingCompleted = false
     boardingCompleted = false
-end
-
--- frame loop, efficient coding please
-function tobusBoarding()
-    local now = os.time()
-
-    if speak_string and now > wait_until_speak then
-      XPLMSpeakString(speak_string)
-      speak_string = nil
-    end
-
-    if boardingActive then
-        if pax_no_cur < pax_no_tgt and now >= nextTimeBoardingCheck then
-            pax_no_cur = pax_no_cur + 1
-            tls_pax_no[0] = pax_no_cur
-            command_once("AirbusFBW/SetWeightAndCG")
-            -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
-            nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
-        end
-
-        if pax_no_cur == pax_no_tgt and not boardingCompleted then
-            boardingCompleted = true
-            boardingActive = false
-            closeDoorsAfterBoarding()
-            -- if not isTobusWindowDisplayed then
-                -- buildTobusWindow()
-            -- end
-            playChimeSound(true)
-            generate_final_loadsheet()
-        end
-
-    elseif deboardingActive then
-        if pax_no_cur > 0 and now >= nextTimeBoardingCheck then
-            pax_no_cur = pax_no_cur - 1
-            tls_pax_no[0] = pax_no_cur
-            command_once("AirbusFBW/SetWeightAndCG")
-            nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
-        end
-
-        if pax_no_cur == 0 and not deboardingCompleted then
-            deboardingCompleted = true
-            deboardingActive = false
-            closeDoorsAfterBoarding()
-            -- if not isTobusWindowDisplayed then
-                -- buildTobusWindow()
-            -- end
-            playChimeSound(false)
-        end
-    end
 end
 
 local function readSettings()
@@ -781,7 +737,7 @@ function tobusOnBuild(tobus_window, x, y)
         imgui.SameLine()
         if imgui.Button("Reset") then
             resetAllParameters()
-            closeDoorsAfterBoarding()
+            close_doors()
         end
     end
 
@@ -919,6 +875,11 @@ function tobus_often()
 
     local now = os.time()
 
+    if speak_string and now > wait_until_speak then
+      XPLMSpeakString(speak_string)
+      speak_string = nil
+    end
+
     -- check if FMGS flight_no was changed
     local fn  = tls_flight_no[0]
     if fmgs_flight_no ~= fn then    -- change
@@ -960,11 +921,60 @@ function tobus_often()
         end
     end
 
+    -- delayed "boarding completed" processing
+    if not doors_closed and now > boarding_completed_ts + 30 then
+        doors_closed = true
+        close_doors()
+    end
+
+    if not final_loadsheet_sent and now > boarding_completed_ts + 60 then
+        final_loadsheet_sent = true
+        generate_final_loadsheet()
+        boarding_completed_ts = 1E20
+    end
+
     -- for debugging plane_data tables
     if false then
         if plane_data == nil then return end
         local pax_no, pax_distrib, zfwcg = get_zfwcg(plane_data.cg_data)
         log_msg(string.format("%s, distrib: %0.3f, pax_no: %0.1f, ZFWCG: %0.1f",plane_data.cfg, pax_distrib, pax_no, zfwcg))
+    end
+end
+
+-- frame loop, efficient coding please
+function tobus_frame()
+    local now = os.time()
+
+    if boardingActive then
+        if pax_no_cur < pax_no_tgt and now >= nextTimeBoardingCheck then
+            pax_no_cur = pax_no_cur + 1
+            tls_pax_no[0] = pax_no_cur
+            command_once("AirbusFBW/SetWeightAndCG")
+            -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
+            nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
+        end
+
+        if pax_no_cur == pax_no_tgt and not boardingCompleted then
+            boardingCompleted = true
+            boardingActive = false
+            playChimeSound(true)
+            boarding_completed_ts = now
+        end
+
+    elseif deboardingActive then
+        if pax_no_cur > 0 and now >= nextTimeBoardingCheck then
+            pax_no_cur = pax_no_cur - 1
+            tls_pax_no[0] = pax_no_cur
+            command_once("AirbusFBW/SetWeightAndCG")
+            nextTimeBoardingCheck = os.time() + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
+        end
+
+        if pax_no_cur == 0 and not deboardingCompleted then
+            deboardingCompleted = true
+            deboardingActive = false
+            close_doors()
+            playChimeSound(false)
+        end
     end
 end
 
@@ -1019,7 +1029,7 @@ create_command("FlyWithLua/TOBUS/start_boarding", "Start Boarding", "tobus_start
 add_macro("TOBUS - Start Deboarding", "tobus_start_deboarding_cmd()")
 create_command("FlyWithLua/TOBUS/start_deboarding", "Start Deboarding", "tobus_start_deboarding_cmd()", "", "")
 
-do_every_frame("tobusBoarding()")
+do_every_frame("tobus_frame()")
 do_often("tobus_often()")
 
 end
