@@ -28,12 +28,10 @@ It adds an tab to FlightWithLua Macros tab, that when opened presents you with a
 
 - Select a passenger number that you want to board/deboard.
 	- Select that number randomly (it's not just 0 - 100 random generator, I put some scaling into this random values in order for them to reflect passenger numbers much better).
-	- Import your passenger number from current simbrief flightplan!!!
-	- Choose speed of the boarding (Real, Fast and Instant).
-
+	- Import your passenger number automatically from simbrief_hub.
+	- Choose speed of the boarding
 - Start boarding/deboarding.
 - Edit script settings such as:
-	- Set your Simbrief username
 	- Set your Hoppie logon code
  	- Set method for receiving your loadsheet (CPDLC or Telex)
 	- Turning on option that simulates some passengers not showing up after simbrief import
@@ -41,13 +39,19 @@ It adds an tab to FlightWithLua Macros tab, that when opened presents you with a
 
 In addition to that it automatically:
 
-- Randomizes (also smartly randomize) the passenger distribution so it won't be always the same which will result in different trim values every flight!
+- Randomizes the passenger number and distribution so you have small differences between OFP, prelim loadsheet and final loadsheet.
 - Opens passenger/cargo doors when boarding is started and closes them after its finished.
 - Adjusts payload of the aircraft to match the boarding status.
 
-After you start boarding/deboarding process you can close the window (the process will run in background) and you can follow the progress of boarding/deboarding by hovering over the bottom left side of the screen.
+After you start boarding/deboarding process you can close the window and the process will continue in the background.
 
-After the boarding/deboarding will finish the application window will show itself, and boarding chime will ring informing you that boarding has completed.
+After the boarding/deboarding finishes a chime will ring and the cabin crew will inform you that boarding/deboarding has completed.
+
+## Command interface
+The script adds commands:
+```FlyWithLua/TOBUS/start_boarding``` and ```FlyWithLua/TOBUS/start_deboarding```.
+
+After initial configuration these allow to run the script without opening the TOBUS window at all.
 
 ## Loadsheet Caveats
 - Currently supported airframes: all narrow bodies and the A339
