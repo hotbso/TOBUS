@@ -62,6 +62,12 @@ local plane_db = {
         cfg = "A319_160",
         max_pax = 160,
         oew = 40820,
+        geometry = {
+            mac = 4.19,
+            lemac = 9.30,
+            fwd_cargo_arm = 4.29,
+            aft_cargo_arm = 14.49
+        },
         cg_data = {
             pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  140,  160},
             zfwcg_035 = {28.6, 25.6, 23.7, 22.7, 22.6, 23.2, 24.4, 26.2, 28.6},
@@ -74,6 +80,12 @@ local plane_db = {
         cfg = "A319",
         max_pax = 145,
         oew = 40820,
+        geometry = {
+            mac = 4.19,
+            lemac = 9.30,
+            fwd_cargo_arm = 4.29,
+            aft_cargo_arm = 14.49
+        },
         cg_data = {
             pax_tab   = {   0,   20,   40,   60,   80,  100,  120,  145},
             zfwcg_035 = {28.6, 25.6, 23.8, 23.1, 23.2, 24.1, 25.7, 28.6},
@@ -86,6 +98,12 @@ local plane_db = {
         cfg = "A320",
         max_pax = 176,
         oew = 43420,
+        geometry = {
+            mac = 4.19,
+            lemac = 10.5,
+            fwd_cargo_arm = 4.64,
+            aft_cargo_arm = 16.69
+        },
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  186},
             zfwcg_035 = {28.5, 24.4, 21.9, 20.7, 20.8, 21.8, 23.7, 26.3, 28.0 },
@@ -98,6 +116,12 @@ local plane_db = {
         cfg = "A20N",
         max_pax = 188,
         oew = 44220,
+        geometry = {
+            mac = 4.19,
+            lemac = 10.5,
+            fwd_cargo_arm = 4.68,
+            aft_cargo_arm = 16.64
+        },
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  188},
             zfwcg_035 = {29.5, 25.4, 22.9, 21.7, 21.8, 22.8, 24.8, 27.5, 29.2},
@@ -110,6 +134,12 @@ local plane_db = {
         cfg = "A321",
         max_pax = 220,
         oew = 47780,
+        geometry = {
+            mac = 4.19,
+            lemac = 12.33,
+            fwd_cargo_arm = 5.15,
+            aft_cargo_arm = 19.52
+        },
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  220},
             zfwcg_035 = {27.5, 22.5, 19.2, 17.4, 17.2, 17.5, 19.1, 21.5, 24.8, 27.9},
@@ -122,6 +152,12 @@ local plane_db = {
         cfg = "A21N",
         max_pax = 244,
         oew = 49580,
+        geometry = {
+            mac = 4.19,
+            lemac = 12.33,
+            fwd_cargo_arm = 5.15,
+            aft_cargo_arm = 19.52
+        },
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225, 244},
             zfwcg_035 = {29.1, 24.3, 20.9, 18.9, 18.0, 18.1, 19.0, 20.8, 23.2, 26.2, 28.9},
@@ -135,6 +171,12 @@ local plane_db = {
         cfg = "A21N",
         max_pax = 200,
         oew = 49580,
+        geometry = {
+            mac = 4.19,
+            lemac = 12.33,
+            fwd_cargo_arm = 5.15,
+            aft_cargo_arm = 19.52
+        },
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200},
             zfwcg_035 = {29.1, 24.4, 21.4, 19.9, 19.7, 20.9, 22.5, 25.3, 29.0},
@@ -147,6 +189,12 @@ local plane_db = {
         cfg = "A339",
         max_pax = 375,
         oew = 134500,
+        geometry = {
+            mac = 7.27,
+            lemac = 26.8,
+            fwd_cargo_arm = 12.99,
+            aft_cargo_arm = 37.60
+        },
         cg_data = {
             pax_tab   = {   0,   25,   50,   75,  100,  125,  150,  175,  200,  225,  250,  275,  300,  325,  350,  375},
             zfwcg_035 = {27.5, 26.0, 24.8, 23.8, 23.1, 22.6, 22.2, 22.1, 22.2, 22.5, 22.9, 23.5, 24.3, 25.2, 26.3, 27.5},
@@ -159,6 +207,12 @@ local plane_db = {
         cfg = "A346",
         max_pax = 440,
         oew = 185500,
+        geometry = {
+            mac = 9.17,
+            lemac = 28.8,
+            fwd_cargo_arm = 11.04,
+            aft_cargo_arm = 43.97
+        },
         -- volunteers welcome for building the cg table
     }
 }
@@ -220,6 +274,34 @@ local function get_zfwcg(cg_data)
     return pax_no, pax_distrib, zfwcg
 end
 
+local function calculate_cargo_zfwcg(zfwcg_pax, pax_weight, fwd_cargo, aft_cargo, oew)
+    if plane_data.geometry == nil then return zfwcg_pax end
+
+    -- Aircraft geometry
+    local mac = plane_data.geometry.mac
+    local lemac = plane_data.geometry.lemac
+    local fwd_arm = plane_data.geometry.fwd_cargo_arm
+    local aft_arm = plane_data.geometry.aft_cargo_arm
+
+     -- Calculate moments (moment = weight * arm)
+    local current_mass = oew + pax_weight
+    local current_arm = lemac + (zfwcg_pax / 100) * mac
+    local current_moment = current_mass * current_arm
+
+    local cargo_moment = (fwd_cargo * fwd_arm) + (aft_cargo * aft_arm)
+    local total_mass = current_mass + fwd_cargo + aft_cargo
+
+    if total_mass == 0 then return 0 end
+
+    -- New CG position
+    local new_arm = (current_moment + cargo_moment) / total_mass
+
+    -- Convert back to % MAC
+    local new_zfwcg = (new_arm - lemac) / mac * 100
+
+    return new_zfwcg
+end
+
 local function format_ls_row(label, value, digit)
     return label .. string.rep(".", digit - #label - #value) .. " @" .. value .. "@ "
 end
@@ -266,7 +348,9 @@ local function generate_final_loadsheet()
         return
     end
 
-    local cargo_kg = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+    local cargo_fwd = get("AirbusFBW/FwdCargo") -- kg
+    local cargo_aft = get("AirbusFBW/AftCargo") -- kg
+    local cargo_kg = math.ceil(cargo_fwd + cargo_aft)
 
     local fob_kg = 0
     for i = 0,8 do
@@ -280,7 +364,8 @@ local function generate_final_loadsheet()
         fob_uu = 100 * math.floor(fob_kg / 100 + 0.35)
     end
 
-    local zfw_kg = plane_data.oew + cargo_kg + tls_pax_no[0] * 100 -- hard coded pax weight of 100kg by ToLiss
+    local pax_weight_kg = tls_pax_no[0] * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfw_kg = plane_data.oew + cargo_kg + pax_weight_kg
     local zfw_uu = zfw_kg
     if units == "lbs" then
         zfw_uu = zfw_kg * kg2lbs
@@ -292,15 +377,17 @@ local function generate_final_loadsheet()
     local tow_uu = zfw_uu + fob_uu - taxiFuel
 
     local zfwcg = "EFB"
-    if cargo_kg <= 20 then  -- cargo is currently unsupported, account for rounding errors
-        local cg_data = plane_data.cg_data
-        if cg_data ~= nil then
-            local pn, pd
-            pn, pd, zfwcg = get_zfwcg(cg_data)
-            log_msg(string.format("get_zfwcg: %s, distrib: %0.1f, pax_no: %d, zfwcg: %0.1f",
-                                   plane_data.cfg, pd, pn, zfwcg))
-            zfwcg = string.format("%0.1f", zfwcg)
-        end
+    local cg_data = plane_data.cg_data
+    if cg_data ~= nil then
+        local pn, pd, zfwcg_pax
+        pn, pd, zfwcg_pax = get_zfwcg(cg_data)
+
+        -- Calculate ZFWCG with cargo
+        local zfwcg_final = calculate_cargo_zfwcg(zfwcg_pax, pax_weight_kg, cargo_fwd, cargo_aft, plane_data.oew)
+
+        log_msg(string.format("get_zfwcg: %s, distrib: %0.1f, pax_no: %d, zfwcg_pax: %0.1f, zfwcg_final: %0.1f",
+                               plane_data.cfg, pd, pn, zfwcg_pax, zfwcg_final))
+        zfwcg = string.format("%0.1f", zfwcg_final)
     end
 
     local ls = {    -- in user units
@@ -343,8 +430,10 @@ local function generate_prelim_loadsheet()
         return
     end
 
+    local cargo_kg = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+
     local block_fuel_kg = get("toliss_airbus/init/BlockFuel")
-    local zfw_kg = plane_data.oew + pax_no_tgt * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfw_kg = plane_data.oew + cargo_kg + pax_no_tgt * 100 -- hard coded pax weight of 100kg by ToLiss
     local zfwcg = get("toliss_airbus/init/ZFWCG")
 
     local block_fuel_uu
