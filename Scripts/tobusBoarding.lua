@@ -19,7 +19,8 @@ local tank_content_array -- dataref_table
 local units --simbrief
 local operator --simbrief
 local pax_no_tgt -- simbrief, target after several randomizations
-local taxiFuel --simbrief
+local taxi_fuel_uu -- simbrief, user units
+local cargo_uu -- simbrief, user units
 local mzfw --simbrief
 local mtow --simbrief
 local MAX_PAX_NUMBER = 224
@@ -379,7 +380,7 @@ local function generate_final_loadsheet()
     log_msg(string.format("fob_kg: %d, fob_uu: %d, zfw_kg: %d, zfw_uu: %d",
             fob_kg, fob_uu, zfw_kg, zfw_uu))
 
-    local tow_uu = zfw_uu + fob_uu - taxiFuel
+    local tow_uu = zfw_uu + fob_uu - taxi_fuel_uu
 
     local zfwcg = "EFB"
     local cg_data = plane_data.cg_data
@@ -456,7 +457,7 @@ local function generate_prelim_loadsheet()
     log_msg(string.format("block_fuel_kg: %d, block_fuel_uu: %d, zfw_kg: %d, zfw_uu: %d",
             block_fuel_kg, block_fuel_uu, zfw_kg, zfw_uu))
 
-    local tow_uu = zfw_uu + block_fuel_uu - taxiFuel
+    local tow_uu = zfw_uu + block_fuel_uu - taxi_fuel_uu
 
     local ls = {    -- in user units
         title = "Prelim",
@@ -535,6 +536,17 @@ local function playChimeSound(boarding)
     end
 
     wait_until_speak = os.time() + 0.5
+end
+
+local function load_cargo()
+    local cargo_kg = cargo_uu
+    if units == "lbs" then cargo_kg = cargo_uu / kg2lbs end
+
+    cargo_kg_2 = math.floor(cargo_kg / 2)
+    log_msg("cargo loaded " .. cargo_kg .. "kg")
+    set("AirbusFBW/FwdCargo", cargo_kg_2)
+    set("AirbusFBW/AftCargo", cargo_kg_2)
+    command_once("AirbusFBW/SetWeightAndCG")
 end
 
 local function boardInstantly()
@@ -650,7 +662,8 @@ local function fetchData()
     pax_no_tgt = tonumber(get("sbh/pax_count"))
     units = get("sbh/units")
     operator = get("sbh/icao_airline")
-    taxiFuel = tonumber(get("sbh/fuel_taxi"))
+    taxi_fuel_uu = tonumber(get("sbh/fuel_taxi"))
+    cargo_uu = tonumber(get("sbh/freight"))
     mzfw = tonumber(get("sbh/max_zfw"))
     mtow = tonumber(get("sbh/max_tow"))
 
@@ -1002,6 +1015,8 @@ function tobus_often()
     if not prelim_loadsheet_sent and now > fmgs_init_ts + 8 then
         fetchData()
         if SIMBRIEF_LOADED then
+            -- load cargo instantly
+            load_cargo()
             log_msg("Send prelim loadsheet")
             generate_prelim_loadsheet()
             prelim_loadsheet_sent = true
