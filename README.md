@@ -5,6 +5,8 @@ Credits:
 
 - Script creation by @piotr-tomczyk
 - Initial loadsheet by @Tom_David
+- Mc Gregger (Discord) for tweaking the A320 table
+- Support of cargo, the A346 and tweaks of the CG tables: https://github.com/jcorbier
 - Manta32 for cpdlc code released with MIT license, see copyright notice below
 
 ```
@@ -54,14 +56,12 @@ The script adds commands:
 After initial configuration these allow to run the script without opening the TOBUS window at all.
 
 ## Loadsheet Caveats
-- Currently supported airframes: all narrow bodies and the A339
 - Passenger weight must stay at the default of 100 kg
-- Cargo is currently unsupported
 - If you use Telex as delivery method you must send a PDC request prior to boarding completion. If you're not connected to a network use a fake station name like *XXXX* in order to not disturb the online systems.
   
 ## INSTALLATION
 1. Install current version of FlyWithLua NG+, if you don't have it already.
-2. For Simbrief integration to work install the [simbrief_hub](https://github.com/hotbso/simbrief_hub?tab=readme-ov-file#simbrief_hub) plugin 1.0.1 or later.
+2. For Simbrief integration to work install the [simbrief_hub](https://github.com/hotbso/simbrief_hub?tab=readme-ov-file#simbrief_hub) plugin.
 3. Extract the zip in the "<X-Plane-Folder>/Resources/plugins/FlyWithLua/" folder. Be sure that you have all the needed files in the MODULE folder because there are essential for the script to work.
 
 It should be compatible with every Toliss version.
