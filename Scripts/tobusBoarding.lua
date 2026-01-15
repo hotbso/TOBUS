@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.2.2-hotbso"
+local VERSION = "3.3.0-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -549,6 +549,13 @@ local function load_cargo()
     command_once("AirbusFBW/SetWeightAndCG")
 end
 
+local function unload_cargo()
+    log_msg("unloading cargo")
+    set("AirbusFBW/FwdCargo", 0)
+    set("AirbusFBW/AftCargo", 0)
+    command_once("AirbusFBW/SetWeightAndCG")
+end
+
 local function boardInstantly()
     set("AirbusFBW/NoPax", pax_no_tgt)
     pax_no_cur = pax_no_tgt
@@ -558,6 +565,7 @@ local function boardInstantly()
 end
 
 local function deboardInstantly()
+    unload_cargo()
     tls_pax_no[0] = 0
     deboardingActive = false
     deboardingCompleted = true
@@ -1119,6 +1127,7 @@ end
 
 function tobus_start_deboarding_cmd()
     if not boardingActive and not deboardingActive and not boardingPaused then
+        unload_cargo()
         pax_no_deboarding = tls_pax_no[0]
         pax_no_cur = pax_no_deboarding
         boardingPaused, boardingActive, boardingCompleted, deboardingCompleted, deboardingPaused =
