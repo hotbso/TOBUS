@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.3.1-hotbso"
+local VERSION = "3.4.0-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -49,6 +49,8 @@ local RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = false
 local USE_SECOND_DOOR = false
 local CLOSE_DOORS = true
 local LEAVE_DOOR1_OPEN = true
+local pre_boarding_cmd
+local post_boarding_cmd
 
 local jw1_connected = false     -- set if an opensam jw at the second door is detected
 local opensam_door_status = nil
@@ -528,7 +530,7 @@ local function close_doors()
 end
 
 local function playChimeSound(boarding)
-    command_once( "AirbusFBW/CheckCabin" )
+    command_once("AirbusFBW/CheckCabin" )
     if boarding then
         speak_string = "Boarding Completed"
     else
@@ -600,9 +602,10 @@ local function readSettings()
     local settings = LIP.load(SCRIPT_DIRECTORY..SETTINGS_FILENAME)
 
     settings.simbrief = settings.simbrief or {}    -- for backwards compatibility
-    settings.hoppie = settings.hoppie or {}    -- for backwards compatibility
+    settings.hoppie = settings.hoppie or {}
     settings.doors = settings.doors or {}
     settings.speed = settings.speed or {}
+    settings.cmdHooks = settings.cmdHooks or {}
 
     if settings.hoppie.logon ~= nil then
         HOPPIE_LOGON = settings.hoppie.logon
@@ -631,25 +634,32 @@ local function readSettings()
     if settings.speed.secondsPerPax ~= nil then
         s_per_pax_cfg = settings.speed.secondsPerPax
     end
+
+    pre_boarding_cmd = settings.cmdHooks.preBoarding or ""
+    post_boarding_cmd = settings.cmdHooks.postBoarding_cmd or ""
 end
 
 local function saveSettings()
     log_msg("tobus: saveSettings...")
-    local newSettings = {}
-    newSettings.simbrief = {}
-    newSettings.simbrief.randomizePassengerNumber = RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
-    newSettings.speed = {}
-    newSettings.speed.secondsPerPax = s_per_pax_cfg
+    local settings = {}
+    settings.simbrief = {}
+    settings.simbrief.randomizePassengerNumber = RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
+    settings.speed = {}
+    settings.speed.secondsPerPax = s_per_pax_cfg
 
-    newSettings.hoppie = {}
-    newSettings.hoppie.logon = HOPPIE_LOGON
-    newSettings.hoppie.cpdlc = HOPPIE_CPDLC
+    settings.hoppie = {}
+    settings.hoppie.logon = HOPPIE_LOGON
+    settings.hoppie.cpdlc = HOPPIE_CPDLC
 
-    newSettings.doors = {}
-    newSettings.doors.useSecondDoor = USE_SECOND_DOOR
-    newSettings.doors.closeDoors = CLOSE_DOORS
-    newSettings.doors.leaveDoor1Open = LEAVE_DOOR1_OPEN
-    LIP.save(SCRIPT_DIRECTORY..SETTINGS_FILENAME, newSettings)
+    settings.doors = {}
+    settings.doors.useSecondDoor = USE_SECOND_DOOR
+    settings.doors.closeDoors = CLOSE_DOORS
+    settings.doors.leaveDoor1Open = LEAVE_DOOR1_OPEN
+
+    settings.cmdHooks = {}
+    settings.cmdHooks.preBoarding = pre_boarding_cmd
+    settings.cmdHooks.postBoarding = post_boarding_cmd
+    LIP.save(SCRIPT_DIRECTORY..SETTINGS_FILENAME, settings)
     log_msg("tobus: done")
 end
 
@@ -730,7 +740,7 @@ local function delayed_init()
     resetAllParameters()
 end
 
-function tobusOnBuild(tobus_window, x, y)
+function tobus_window_cb(tobus_window, x, y)
     if boardingActive and not boardingCompleted then
         imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF95FFF8)
         imgui.TextUnformatted(string.format("Boarding in progress %s / %s boarded", pax_no_cur, pax_no_tgt))
@@ -937,6 +947,17 @@ function tobusOnBuild(tobus_window, x, y)
             log_msg("LEAVE_DOOR1_OPEN set to " .. tostring(LEAVE_DOOR1_OPEN))
         end
 
+
+        changed, newval = imgui.InputText("Pre-(de-)boarding cmd", pre_boarding_cmd, 255)
+        if changed then
+            pre_boarding_cmd = newval
+        end
+
+        changed, newval = imgui.InputText("Post-(de)boarding cmd", post_boarding_cmd, 255)
+        if changed then
+            post_boarding_cmd = newval
+        end
+
         if imgui.Button("Save Settings") then
             saveSettings()
         end
@@ -963,7 +984,7 @@ function buildTobusWindow()
 
     float_wnd_set_position(tobus_window, width / 2 - 375, height / 2)
 	float_wnd_set_title(tobus_window, "TOBUS - Your Toliss Boarding Companion " .. VERSION)
-	float_wnd_set_imgui_builder(tobus_window, "tobusOnBuild")
+	float_wnd_set_imgui_builder(tobus_window, "tobus_window_cb")
     float_wnd_set_onclose(tobus_window, "tobusOnClose")
 
     isTobusWindowDisplayed = true
@@ -1077,6 +1098,12 @@ function tobus_frame()
             boardingCompleted = true
             boardingActive = false
             playChimeSound(true)
+
+            if post_boarding_cmd ~= "" then
+                logMsg("calling post_boarding_cmd: '" .. post_boarding_cmd .. "'")
+                command_once(post_boarding_cmd)
+            end
+
             boarding_completed_ts = now
         end
 
@@ -1093,6 +1120,10 @@ function tobus_frame()
             deboardingActive = false
             close_doors()
             playChimeSound(false)
+            if post_boarding_cmd ~= "" then
+                logMsg("calling post_boarding_cmd: '" .. post_boarding_cmd .. "'")
+                command_once(post_boarding_cmd)
+            end
         end
     end
 end
@@ -1124,6 +1155,10 @@ function tobus_start_boarding_cmd()
             false, false, false, false
         nextTimeBoardingCheck = os.time()
         open_doors()
+        if pre_boarding_cmd ~= "" then
+            logMsg("calling pre_boarding_cmd: '" .. pre_boarding_cmd .. "'")
+            command_once(pre_boarding_cmd)
+        end
     end
 end
 
@@ -1137,7 +1172,15 @@ function tobus_start_deboarding_cmd()
         deboardingActive = true
         nextTimeBoardingCheck = os.time()
         open_doors()
+        if pre_boarding_cmd ~= "" then
+            logMsg("calling pre_boarding_cmd: '" .. pre_boarding_cmd .. "'")
+            command_once(pre_boarding_cmd)
+        end
     end
+end
+
+function tobus_test_cmd()
+    XPLMSpeakString("tobus test command")
 end
 
 add_macro("TOBUS - Your Toliss Boarding Companion", "buildTobusWindow()")
@@ -1148,6 +1191,8 @@ create_command("FlyWithLua/TOBUS/start_boarding", "Start Boarding", "tobus_start
 
 add_macro("TOBUS - Start Deboarding", "tobus_start_deboarding_cmd()")
 create_command("FlyWithLua/TOBUS/start_deboarding", "Start Deboarding", "tobus_start_deboarding_cmd()", "", "")
+
+create_command("FlyWithLua/TOBUS/test_cmd", "Test cmd", "tobus_test_cmd()", "", "")
 
 do_every_frame("tobus_frame()")
 do_often("tobus_often()")
