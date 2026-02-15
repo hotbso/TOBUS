@@ -1,5 +1,5 @@
 # TOBUS mod
-**This is a mod of TOBUS by @piotr-tomczyk who is unreachable and seems to have other prorities now. I took the liberty to add some functionality and keep this tool alive.**
+**This is a mod of TOBUS by @piotr-tomczyk. I took the liberty to add some functionality and keep this tool alive.**
 
 Credits:
 
@@ -24,7 +24,7 @@ License: MIT License
 
 ## DESCRIPTION
 This script simulates the boarding process for your ToLiss fleet. It pulls data from simbrief,
-simulates timing of passenger boarding applying some variation (late booking, no-show) and send a final loadsheet (see some caveats below).
+simulates timing of passenger boarding applying some variation (late booking, no-show) and sends a final loadsheet (see some caveats below).
 
 It adds an tab to FlightWithLua Macros tab, that when opened presents you with an window that lets you:
 
@@ -38,6 +38,7 @@ It adds an tab to FlightWithLua Macros tab, that when opened presents you with a
  	- Set method for receiving your loadsheet (CPDLC or Telex)
 	- Turning on option that simulates some passengers not showing up after simbrief import
 	- Using front and back door for boarding / deboarding in addition to front door (default is front door only)
+    - Define optional pre/post (de-)boarding commands to call/dismiss your fancy ground equipment
 
 In addition to that it automatically:
 
@@ -58,7 +59,7 @@ After initial configuration these allow to run the script without opening the TO
 ## Loadsheet Caveats
 - Passenger weight must stay at the default of 100 kg
 - If you use Telex as delivery method you must send a PDC request prior to boarding completion. If you're not connected to a network use a fake station name like *XXXX* in order to not disturb the online systems.
-  
+
 ## INSTALLATION
 1. Install current version of FlyWithLua NG+, if you don't have it already.
 2. For Simbrief integration to work install the [simbrief_hub](https://github.com/hotbso/simbrief_hub?tab=readme-ov-file#simbrief_hub) plugin.
