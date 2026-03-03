@@ -7,6 +7,7 @@ Credits:
 - Initial loadsheet by @Tom_David
 - Mc Gregger (Discord) for tweaking the A320 table
 - Support of cargo, the A346 and tweaks of the CG tables: https://github.com/jcorbier
+- McTom234 for Separate door closing logic for boarding and deboarding
 - Manta32 for cpdlc code released with MIT license, see copyright notice below
 
 ```
