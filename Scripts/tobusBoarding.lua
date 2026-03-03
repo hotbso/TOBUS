@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.4.0-hotbso"
+local VERSION = "3.5.0-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -510,9 +510,8 @@ local function open_doors()
     cargoDoorArray[1] = 2
 end
 
-local function close_doors(boarding)
-    if boarding and not CLOSE_DOORS_BOARDING then return end
-    if not boarding and not CLOSE_DOORS_DEBOARDING then return end
+local function close_doors(close_all_doors)
+    if not close_all_doors then return end
 
     if not LEAVE_DOOR1_OPEN then
         passengerDoorArray[0] = 0
@@ -527,6 +526,7 @@ local function close_doors(boarding)
             passengerDoorArray[6] = 0
         end
     end
+
     cargoDoorArray[0] = 0
     cargoDoorArray[1] = 0
 end
@@ -575,7 +575,7 @@ local function deboardInstantly()
     deboardingCompleted = true
     playChimeSound(false)
     command_once("AirbusFBW/SetWeightAndCG")
-    close_doors(false)
+    close_doors(CLOSE_DOORS_DEBOARDING)
 end
 
 local function resetAllParameters()
@@ -883,7 +883,6 @@ function tobus_window_cb(tobus_window, x, y)
         imgui.SameLine()
         if imgui.Button("Reset") then
             resetAllParameters()
-            close_doors(boardingPaused or boardingCompleted or false)
         end
     end
 
@@ -1092,13 +1091,14 @@ function tobus_often()
     -- delayed "boarding completed" processing
     if not doors_closed and now > boarding_completed_ts + 30 then
         doors_closed = true
-        close_doors(true)
+        close_doors(CLOSE_DOORS_BOARDING)
     end
 
     if not final_loadsheet_sent and now > boarding_completed_ts + 60 then
         final_loadsheet_sent = true
         generate_final_loadsheet()
         boarding_completed_ts = 1E20
+        doors_closed = false
     end
 
     -- for debugging plane_data tables
@@ -1146,7 +1146,7 @@ function tobus_frame()
         if pax_no_cur == 0 and not deboardingCompleted then
             deboardingCompleted = true
             deboardingActive = false
-            close_doors(false)
+            close_doors(CLOSE_DOORS_DEBOARDING)
             playChimeSound(false)
             if post_boarding_cmd ~= "" then
                 logMsg("calling post_boarding_cmd: '" .. post_boarding_cmd .. "'")
