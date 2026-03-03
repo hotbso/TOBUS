@@ -47,7 +47,8 @@ local HOPPIE_LOGON = ""
 local HOPPIE_CPDLC = true
 local RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = false
 local USE_SECOND_DOOR = false
-local CLOSE_DOORS = true
+local CLOSE_DOORS_BOARDING = true
+local CLOSE_DOORS_DEBOARDING = true
 local LEAVE_DOOR1_OPEN = true
 local pre_boarding_cmd
 local post_boarding_cmd
@@ -509,8 +510,9 @@ local function open_doors()
     cargoDoorArray[1] = 2
 end
 
-local function close_doors()
-    if not CLOSE_DOORS then return end
+local function close_doors(boarding)
+    if boarding and not CLOSE_DOORS_BOARDING then return end
+    if not boarding and not CLOSE_DOORS_DEBOARDING then return end
 
     if not LEAVE_DOOR1_OPEN then
         passengerDoorArray[0] = 0
@@ -573,7 +575,7 @@ local function deboardInstantly()
     deboardingCompleted = true
     playChimeSound(false)
     command_once("AirbusFBW/SetWeightAndCG")
-    close_doors()
+    close_doors(false)
 end
 
 local function resetAllParameters()
@@ -604,6 +606,20 @@ local function readSettings()
     settings.simbrief = settings.simbrief or {}    -- for backwards compatibility
     settings.hoppie = settings.hoppie or {}
     settings.doors = settings.doors or {}
+    if settings.doors.closeDoorsBoarding == nil then
+        if settings.doors.closeDoors == nil then
+            settings.doors.closeDoorsBoarding = true
+        else
+            settings.doors.closeDoorsBoarding = settings.doors.closeDoors
+        end
+    end
+    if settings.doors.closeDoorsDeboarding == nil then
+        if settings.doors.closeDoors == nil then
+            settings.doors.closeDoorsDeboarding = true
+        else
+            settings.doors.closeDoorsDeboarding = settings.doors.closeDoors
+        end
+    end
     settings.speed = settings.speed or {}
     settings.cmdHooks = settings.cmdHooks or {}
 
@@ -623,8 +639,12 @@ local function readSettings()
         USE_SECOND_DOOR = settings.doors.useSecondDoor
     end
 
-    if settings.doors.closeDoors ~= nil then
-        CLOSE_DOORS = settings.doors.closeDoors
+    if settings.doors.closeDoorsBoarding ~= nil then
+        CLOSE_DOORS_BOARDING = settings.doors.closeDoorsBoarding
+    end
+
+    if settings.doors.closeDoorsDeboarding ~= nil then
+        CLOSE_DOORS_DEBOARDING = settings.doors.closeDoorsDeboarding
     end
 
     if settings.doors.leaveDoor1Open ~= nil then
@@ -653,7 +673,8 @@ local function saveSettings()
 
     settings.doors = {}
     settings.doors.useSecondDoor = USE_SECOND_DOOR
-    settings.doors.closeDoors = CLOSE_DOORS
+    settings.doors.closeDoorsBoarding = CLOSE_DOORS_BOARDING
+    settings.doors.closeDoorsDeboarding = CLOSE_DOORS_DEBOARDING
     settings.doors.leaveDoor1Open = LEAVE_DOOR1_OPEN
 
     settings.cmdHooks = {}
@@ -862,7 +883,7 @@ function tobus_window_cb(tobus_window, x, y)
         imgui.SameLine()
         if imgui.Button("Reset") then
             resetAllParameters()
-            close_doors()
+            close_doors(boardingPaused or boardingCompleted or false)
         end
     end
 
@@ -934,10 +955,17 @@ function tobus_window_cb(tobus_window, x, y)
         end
 
         changed, newval = imgui.Checkbox(
-            "Close doors after boarding/deboading", CLOSE_DOORS)
+            "Close doors after boarding", CLOSE_DOORS_BOARDING)
         if changed then
-            CLOSE_DOORS = newval
-            log_msg("CLOSE_DOORS set to " .. tostring(CLOSE_DOORS))
+            CLOSE_DOORS_BOARDING = newval
+            log_msg("CLOSE_DOORS_BOARDING set to " .. tostring(CLOSE_DOORS_BOARDING))
+        end
+
+        changed, newval = imgui.Checkbox(
+            "Close doors after deboading", CLOSE_DOORS_DEBOARDING)
+        if changed then
+            CLOSE_DOORS_DEBOARDING = newval
+            log_msg("CLOSE_DOORS_DEBOARDING set to " .. tostring(CLOSE_DOORS_DEBOARDING))
         end
 
         changed, newval = imgui.Checkbox(
@@ -1064,7 +1092,7 @@ function tobus_often()
     -- delayed "boarding completed" processing
     if not doors_closed and now > boarding_completed_ts + 30 then
         doors_closed = true
-        close_doors()
+        close_doors(true)
     end
 
     if not final_loadsheet_sent and now > boarding_completed_ts + 60 then
@@ -1118,7 +1146,7 @@ function tobus_frame()
         if pax_no_cur == 0 and not deboardingCompleted then
             deboardingCompleted = true
             deboardingActive = false
-            close_doors()
+            close_doors(false)
             playChimeSound(false)
             if post_boarding_cmd ~= "" then
                 logMsg("calling post_boarding_cmd: '" .. post_boarding_cmd .. "'")
