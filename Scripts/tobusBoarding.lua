@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.5.0-hotbso"
+local VERSION = "3.5.1-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -16,6 +16,7 @@ local speak_string
 
 local tls_pax_no    -- dataref_table AirbusFBW/NoPax
 local tank_content_array -- dataref_table
+
 local units --simbrief
 local operator --simbrief
 local pax_no_tgt -- simbrief, target after several randomizations
@@ -1071,6 +1072,12 @@ function tobus_often()
     end
 
     if not prelim_loadsheet_sent and now > fmgs_init_ts + 8 then
+        -- check the beacon again as there might be a delay in initialization after a situation reload
+        if 1 == get("sim/cockpit/electrical/beacon_lights_on") then
+            fmgs_init_ts = 1E20
+            return
+        end
+
         fetchData()
         if SIMBRIEF_LOADED then
             -- load cargo instantly
