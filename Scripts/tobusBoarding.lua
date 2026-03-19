@@ -49,22 +49,23 @@ local S_DEBOARDING_PAUSED = 7 -- temporarily paused
 local state = S_IDLE
 
 local pax_no_cur, pax_no_deboarding,
-      nextTimeBoardingCheck,
-      s_per_pax,
-      passenger_doors_drf, cargo_doors_drf,
-      isTobusWindowDisplayed
+      next_boarding_check_ts,
+      passenger_doors_drft, cargo_doors_drft,
+      is_tobus_window_displayed
 
-local s_per_pax_cfg = 4 -- seconds per pax in cfg
+-- config values loaded from settings
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
-local HOPPIE_LOGON = ""
-local HOPPIE_CPDLC = true
-local RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = false
-local USE_SECOND_DOOR = false
-local CLOSE_DOORS_BOARDING = true
-local CLOSE_DOORS_DEBOARDING = true
-local LEAVE_DOOR1_OPEN = true
-local pre_boarding_cmd
-local post_boarding_cmd
+local cfg = {}
+cfg.s_per_pax = 4 -- seconds per pax in cfg
+cfg.hoppie_logon = ""
+cfg.hoppie_cpdlc = true
+cfg.randomize_px_no = false
+cfg.use_second_door = false
+cfg.close_doors_boarding = true
+cfg.close_doors_deboarding = true
+cfg.leave_door1_open = true
+cfg.pre_boarding_cmd = ""
+cfg.post_boarding_cmd = ""
 
 local jw1_connected = false     -- set if an opensam jw at the second door is detected
 local opensam_door_status = nil
@@ -332,16 +333,16 @@ local function send_loadsheet(ls_content)
     ls_content = ls_content:gsub("\n", "%%0A")
 
     local payload
-    if HOPPIE_CPDLC then
+    if cfg.hoppie_cpdlc then
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
-            HOPPIE_LOGON,
+            cfg.hoppie_logon,
             operator .. "OPS",
             fmgs_flight_no,
             'cpdlc',
             "/data2/313//NE/" .. ls_content)
     else
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
-            HOPPIE_LOGON,
+            cfg.hoppie_logon,
             operator .. "OPS",
             fmgs_flight_no,
             'telex',
@@ -364,7 +365,7 @@ local function send_loadsheet(ls_content)
 end
 
 local function generate_final_loadsheet()
-    if state ~= S_BOARDED or HOPPIE_LOGON == "" then
+    if state ~= S_BOARDED or cfg.hoppie_logon == "" then
         log_msg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
         return
     end
@@ -446,7 +447,7 @@ local function generate_final_loadsheet()
 end
 
 local function generate_prelim_loadsheet()
-    if state < S_IDLE or HOPPIE_LOGON == "" then
+    if state < S_IDLE or cfg.hoppie_logon == "" then
         log_msg("LOADSHEET UNAVAIL DUE TO NO SIMBRIEF DATA OR MISSING HOPPIE LOGIN")
         return
     end
@@ -508,42 +509,47 @@ local function generate_prelim_loadsheet()
     send_loadsheet(ls_content)
 end
 
-local function open_doors()
-    passenger_doors_drf[0] = 2
-    if USE_SECOND_DOOR or jw1_connected then
+local function door2_idx()
+    local idx = nil
+    if cfg.use_second_door or jw1_connected then
         if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A339" then
-            passenger_doors_drf[2] = 2
-        end
-        if MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" or MY_PLANE_ICAO == "A346" then
-            passenger_doors_drf[6] = 2
+            idx = 2
+        elseif MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" or MY_PLANE_ICAO == "A346" then
+            idx = 6
         end
     end
-    cargo_doors_drf[0] = 2
-    cargo_doors_drf[1] = 2
+    return idx
+end
+
+local function open_doors()
+    passenger_doors_drft[0] = 2
+
+    local idx = door2_idx()
+    if idx ~= nil then
+        passenger_doors_drft[idx] = 2
+    end
+
+    cargo_doors_drft[0] = 2
+    cargo_doors_drft[1] = 2
 end
 
 local function close_doors(close_all_doors)
     if not close_all_doors then return end
 
-    if not LEAVE_DOOR1_OPEN then
-        passenger_doors_drf[0] = 0
+    if not cfg.leave_door1_open then
+        passenger_doors_drft[0] = 0
     end
 
-    if USE_SECOND_DOOR or jw1_connected then
-        if MY_PLANE_ICAO == "A319" or MY_PLANE_ICAO == "A20N" or MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A339" then
-            passenger_doors_drf[2] = 0
-        end
-
-        if MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" or MY_PLANE_ICAO == "A346" or MY_PLANE_ICAO == "A339" then
-            passenger_doors_drf[6] = 0
-        end
+    local idx = door2_idx()
+    if idx ~= nil then
+        passenger_doors_drft[idx] = 0
     end
 
-    cargo_doors_drf[0] = 0
-    cargo_doors_drf[1] = 0
+    cargo_doors_drft[0] = 0
+    cargo_doors_drft[1] = 0
 end
 
-local function playChimeSound(boarding)
+local function play_chime(boarding)
     command_once("AirbusFBW/CheckCabin" )
     if boarding then
         speak_string = "Boarding Completed"
@@ -576,29 +582,29 @@ local function board_instantly()
     set("AirbusFBW/NoPax", pax_no_tgt)
     pax_no_cur = pax_no_tgt
     state = S_BOARDED
-    playChimeSound(false)
+    play_chime(false)
     command_once("AirbusFBW/SetWeightAndCG")    -- that runs async so we need postprocessing in the draw loop
-    close_doors(CLOSE_DOORS_BOARDING)
+    close_doors(cfg.close_doors_boarding)
 end
 
 local function deboard_instantly()
     unload_cargo()
     tls_pax_no[0] = 0
     state = S_IDLE
-    playChimeSound(false)
+    play_chime(false)
     command_once("AirbusFBW/SetWeightAndCG")
-    close_doors(CLOSE_DOORS_DEBOARDING)
+    close_doors(cfg.close_doors_deboarding)
 end
 
 local function reset()
     pax_no_cur = 0
     pax_no_tgt = 0
     state = S_IDLE
-    nextTimeBoardingCheck = os.time()
-    if USE_SECOND_DOOR then
-        s_per_pax = s_per_pax_cfg / 2
+    next_boarding_check_ts = os.time()
+    if cfg.use_second_door then
+        s_per_pax = cfg.s_per_pax / 2
     else
-        s_per_pax = s_per_pax_cfg
+        s_per_pax = cfg.s_per_pax
     end
     jw1_connected = false
 end
@@ -631,62 +637,62 @@ local function read_settings()
     settings.cmdHooks = settings.cmdHooks or {}
 
     if settings.hoppie.logon ~= nil then
-        HOPPIE_LOGON = settings.hoppie.logon
+        cfg.hoppie_logon = settings.hoppie.logon
     end
 
     if settings.hoppie.cpdlc ~= nil then
-        HOPPIE_CPDLC = settings.hoppie.cpdlc
+        cfg.hoppie_cpdlc = settings.hoppie.cpdlc
     end
 
     if settings.simbrief.randomizePassengerNumber ~= nil then
-        RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = settings.simbrief.randomizePassengerNumber
+        cfg.randomize_px_no = settings.simbrief.randomizePassengerNumber
     end
 
     if settings.doors.useSecondDoor ~= nil then
-        USE_SECOND_DOOR = settings.doors.useSecondDoor
+        cfg.use_second_door = settings.doors.useSecondDoor
     end
 
     if settings.doors.closeDoorsBoarding ~= nil then
-        CLOSE_DOORS_BOARDING = settings.doors.closeDoorsBoarding
+        cfg.close_doors_boarding = settings.doors.closeDoorsBoarding
     end
 
     if settings.doors.closeDoorsDeboarding ~= nil then
-        CLOSE_DOORS_DEBOARDING = settings.doors.closeDoorsDeboarding
+        cfg.close_doors_deboarding = settings.doors.closeDoorsDeboarding
     end
 
     if settings.doors.leaveDoor1Open ~= nil then
-        LEAVE_DOOR1_OPEN = settings.doors.leaveDoor1Open
+        cfg.leave_door1_open = settings.doors.leaveDoor1Open
     end
 
     if settings.speed.secondsPerPax ~= nil then
-        s_per_pax_cfg = settings.speed.secondsPerPax
+        cfg.s_per_pax = settings.speed.secondsPerPax
     end
 
-    pre_boarding_cmd = settings.cmdHooks.preBoarding or ""
-    post_boarding_cmd = settings.cmdHooks.postBoarding_cmd or ""
+    cfg.pre_boarding_cmd = settings.cmdHooks.preBoarding or ""
+    cfg.post_boarding_cmd = settings.cmdHooks.postBoarding_cmd or ""
 end
 
 local function save_settings()
     log_msg("tobus: saveSettings...")
     local settings = {}
     settings.simbrief = {}
-    settings.simbrief.randomizePassengerNumber = RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER
+    settings.simbrief.randomizePassengerNumber = cfg.randomize_px_no
     settings.speed = {}
-    settings.speed.secondsPerPax = s_per_pax_cfg
+    settings.speed.secondsPerPax = cfg.s_per_pax
 
     settings.hoppie = {}
-    settings.hoppie.logon = HOPPIE_LOGON
-    settings.hoppie.cpdlc = HOPPIE_CPDLC
+    settings.hoppie.logon = cfg.hoppie_logon
+    settings.hoppie.cpdlc = cfg.hoppie_cpdlc
 
     settings.doors = {}
-    settings.doors.useSecondDoor = USE_SECOND_DOOR
-    settings.doors.closeDoorsBoarding = CLOSE_DOORS_BOARDING
-    settings.doors.closeDoorsDeboarding = CLOSE_DOORS_DEBOARDING
-    settings.doors.leaveDoor1Open = LEAVE_DOOR1_OPEN
+    settings.doors.useSecondDoor = cfg.use_second_door
+    settings.doors.closeDoorsBoarding = cfg.close_doors_boarding
+    settings.doors.closeDoorsDeboarding = cfg.close_doors_deboarding
+    settings.doors.leaveDoor1Open = cfg.leave_door1_open
 
     settings.cmdHooks = {}
-    settings.cmdHooks.preBoarding = pre_boarding_cmd
-    settings.cmdHooks.postBoarding = post_boarding_cmd
+    settings.cmdHooks.preBoarding = cfg.pre_boarding_cmd
+    settings.cmdHooks.postBoarding = cfg.post_boarding_cmd
     LIP.save(SCRIPT_DIRECTORY..SETTINGS_FILENAME, settings)
     log_msg("tobus: done")
 end
@@ -725,7 +731,7 @@ local function fetch_sb()
         log_msg(string.format("max. pax no mismatch: ofp: %d config: %d", MAX_PAX_NUMBER, plane_data.max_pax))
     end
 
-    if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
+    if cfg.randomize_px_no then
         local f = clamp(gauss(1.0, 0.025), 0.96, 1.04)
 	    pax_no_tgt = math.floor(pax_no_tgt * f + 0.5)
         if pax_no_tgt > MAX_PAX_NUMBER then pax_no_tgt = MAX_PAX_NUMBER end
@@ -750,8 +756,8 @@ local function delayed_init()
     tls_flight_no = dataref_table("toliss_airbus/init/flight_no")
 
     tls_pax_no = dataref_table("AirbusFBW/NoPax")
-    passenger_doors_drf = dataref_table("AirbusFBW/PaxDoorModeArray")
-    cargo_doors_drf = dataref_table("AirbusFBW/CargoDoorModeArray")
+    passenger_doors_drft = dataref_table("AirbusFBW/PaxDoorModeArray")
+    cargo_doors_drft = dataref_table("AirbusFBW/CargoDoorModeArray")
     tank_content_drf = dataref_table("toliss_airbus/fuelTankContent_kgs")
 
     if MY_PLANE_ICAO == "A21N" and get("AirbusFBW/A321ExitConfig") == 3 then    -- no door 3
@@ -785,7 +791,6 @@ function TobusWindowCb(tobus_window, x, y)
         end
 
         if imgui.Button("Start Boarding") then
-            log_msg(string.format("start boarding with %0.1f s/pax", s_per_pax))
             TobusStartBoardingCmd()
             ToggleTobusWindow()
             return
@@ -887,7 +892,7 @@ function TobusWindowCb(tobus_window, x, y)
 
     jw1_connected = (opensam_door_status ~= nil and opensam_door_status[1] == 1)
 
-    if USE_SECOND_DOOR or jw1_connected then
+    if cfg.use_second_door or jw1_connected then
         imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF00AAFF)
         if jw1_connected then
             imgui.TextUnformatted("A second jetway is connected, using both doors")
@@ -895,7 +900,7 @@ function TobusWindowCb(tobus_window, x, y)
             imgui.TextUnformatted("Using both doors")
         end
 
-        s_per_pax = s_per_pax_cfg / 2
+        s_per_pax = cfg.s_per_pax / 2
 
         if state == S_SB_LOADED or state == S_BOARDED then
             local minutes = math.floor((pax_no_tgt * s_per_pax) / 60 + 0.5)
@@ -908,29 +913,29 @@ function TobusWindowCb(tobus_window, x, y)
     imgui.Separator()
 
     if imgui.TreeNode("Settings") then
-        local changed, newval = imgui.SliderFloat("Boarding speed", s_per_pax_cfg, 1, 6, "s / pax: %.1f")
+        local changed, newval = imgui.SliderFloat("Boarding speed", cfg.s_per_pax, 1, 6, "s / pax: %.1f")
         if changed then
-            s_per_pax_cfg = newval
+            cfg.s_per_pax = newval
         end
 
-        changed, newval = imgui.InputText("Hoppie Logon", HOPPIE_LOGON, 255)
+        changed, newval = imgui.InputText("Hoppie Logon", cfg.hoppie_logon, 255)
         if changed then
-            HOPPIE_LOGON = newval
+            cfg.hoppie_logon = newval
         end
 
         imgui.TextUnformatted("Deliver loadsheet via: ")
         imgui.SameLine()
-        if imgui.RadioButton("CPDLC", HOPPIE_CPDLC) then
-            HOPPIE_CPDLC = true
+        if imgui.RadioButton("CPDLC", cfg.hoppie_cpdlc) then
+            cfg.hoppie_cpdlc = true
         end
 
         imgui.SameLine()
 
-        if imgui.RadioButton("Telex", not HOPPIE_CPDLC) then
-            HOPPIE_CPDLC = false
+        if imgui.RadioButton("Telex", not cfg.hoppie_cpdlc) then
+            cfg.hoppie_cpdlc = false
         end
 
-        if not HOPPIE_CPDLC then
+        if not cfg.hoppie_cpdlc then
             imgui.PushStyleColor(imgui.constant.Col.Text, 0xFF00AAFF)
             imgui.SameLine();
             imgui.TextUnformatted("You MUST send a PDC reqequest prior to boarding for a Telex to arrive")
@@ -939,48 +944,48 @@ function TobusWindowCb(tobus_window, x, y)
         end
 
         changed, newval = imgui.Checkbox("Simulate some passengers not showing up after simbrief import",
-                                         RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER)
+                                         cfg.randomize_px_no)
         if changed then
-            RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER = newval
+            cfg.randomize_px_no = newval
         end
 
         changed, newval = imgui.Checkbox(
-            "Use front and back door for boarding and deboarding (only front door by default)", USE_SECOND_DOOR)
+            "Use front and back door for boarding and deboarding (only front door by default)", cfg.use_second_door)
         if changed then
-            USE_SECOND_DOOR = newval
-            log_msg("USE_SECOND_DOOR set to " .. tostring(USE_SECOND_DOOR))
+            cfg.use_second_door = newval
+            log_msg("USE_SECOND_DOOR set to " .. tostring(cfg.use_second_door))
         end
 
         changed, newval = imgui.Checkbox(
-            "Close doors after boarding", CLOSE_DOORS_BOARDING)
+            "Close doors after boarding", cfg.close_doors_boarding)
         if changed then
-            CLOSE_DOORS_BOARDING = newval
-            log_msg("CLOSE_DOORS_BOARDING set to " .. tostring(CLOSE_DOORS_BOARDING))
+            cfg.close_doors_boarding = newval
+            log_msg("CLOSE_DOORS_BOARDING set to " .. tostring(cfg.close_doors_boarding))
         end
 
         changed, newval = imgui.Checkbox(
-            "Close doors after deboading", CLOSE_DOORS_DEBOARDING)
+            "Close doors after deboading", cfg.close_doors_deboarding)
         if changed then
-            CLOSE_DOORS_DEBOARDING = newval
-            log_msg("CLOSE_DOORS_DEBOARDING set to " .. tostring(CLOSE_DOORS_DEBOARDING))
+            cfg.close_doors_deboarding = newval
+            log_msg("CLOSE_DOORS_DEBOARDING set to " .. tostring(cfg.close_doors_deboarding))
         end
 
         changed, newval = imgui.Checkbox(
-            "Leave door1 open after boarding/deboading", LEAVE_DOOR1_OPEN)
+            "Leave door1 open after boarding/deboading", cfg.leave_door1_open)
         if changed then
-            LEAVE_DOOR1_OPEN = newval
-            log_msg("LEAVE_DOOR1_OPEN set to " .. tostring(LEAVE_DOOR1_OPEN))
+            cfg.leave_door1_open = newval
+            log_msg("LEAVE_DOOR1_OPEN set to " .. tostring(cfg.leave_door1_open))
         end
 
 
-        changed, newval = imgui.InputText("Pre-(de-)boarding cmd", pre_boarding_cmd, 255)
+        changed, newval = imgui.InputText("Pre-(de-)boarding cmd", cfg.pre_boarding_cmd, 255)
         if changed then
-            pre_boarding_cmd = newval
+            cfg.pre_boarding_cmd = newval
         end
 
-        changed, newval = imgui.InputText("Post-(de)boarding cmd", post_boarding_cmd, 255)
+        changed, newval = imgui.InputText("Post-(de)boarding cmd", cfg.post_boarding_cmd, 255)
         if changed then
-            post_boarding_cmd = newval
+            cfg.post_boarding_cmd = newval
         end
 
         if imgui.Button("Save Settings") then
@@ -993,14 +998,14 @@ end
 local winCloseInProgess = false
 
 function TobusOnClose()
-    isTobusWindowDisplayed = false
+    is_tobus_window_displayed = false
     winCloseInProgess = false
 end
 
 function BuildTobusWindow()
     delayed_init()
 
-    if (isTobusWindowDisplayed) then
+    if (is_tobus_window_displayed) then
         return
     end
 	tobus_window = float_wnd_create(900, 295, 1, true)
@@ -1012,11 +1017,11 @@ function BuildTobusWindow()
 	float_wnd_set_imgui_builder(tobus_window, "TobusWindowCb")
     float_wnd_set_onclose(tobus_window, "TobusOnClose")
 
-    isTobusWindowDisplayed = true
+    is_tobus_window_displayed = true
 end
 
 function ToggleTobusWindow()
-    if isTobusWindowDisplayed then
+    if is_tobus_window_displayed then
         if not winCloseInProgess then
             winCloseInProgess = true
             float_wnd_destroy(tobus_window) -- marks for destroy, destroy is async
@@ -1084,7 +1089,7 @@ function TobusOften()
             generate_prelim_loadsheet()
             prelim_loadsheet_sent = true
             -- after the prelim load sheet a few no shows
-            if RANDOMIZE_SIMBRIEF_PASSENGER_NUMBER then
+            if cfg.randomize_px_no then
                 pax_no_tgt = math.random(pax_no_tgt - 3, pax_no_tgt)
                 if pax_no_tgt < 0 then
                     pax_no_tgt = 0
@@ -1096,7 +1101,7 @@ function TobusOften()
     -- delayed "boarding completed" processing
     if not doors_closed and now > boarding_completed_ts + 30 then
         doors_closed = true
-        close_doors(CLOSE_DOORS_BOARDING)
+        close_doors(cfg.close_doors_boarding)
     end
 
     if not final_loadsheet_sent and now > boarding_completed_ts + 60 then
@@ -1119,21 +1124,21 @@ function TobusFrame()
     local now = os.time()
 
     if state == S_BOARDING then
-        if pax_no_cur < pax_no_tgt and now >= nextTimeBoardingCheck then
+        if pax_no_cur < pax_no_tgt and now >= next_boarding_check_ts then
             pax_no_cur = pax_no_cur + 1
             tls_pax_no[0] = pax_no_cur
             command_once("AirbusFBW/SetWeightAndCG")
             -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
-            nextTimeBoardingCheck = now + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
+            next_boarding_check_ts = now + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
         if pax_no_cur == pax_no_tgt then
             state = S_BOARDED
-            playChimeSound(true)
+            play_chime(true)
 
-            if post_boarding_cmd ~= "" then
-                logMsg("calling post_boarding_cmd: '" .. post_boarding_cmd .. "'")
-                command_once(post_boarding_cmd)
+            if cfg.post_boarding_cmd ~= "" then
+                logMsg("calling post_boarding_cmd: '" .. cfg.post_boarding_cmd .. "'")
+                command_once(cfg.post_boarding_cmd)
             end
 
             boarding_completed_ts = now
@@ -1142,20 +1147,20 @@ function TobusFrame()
     end
 
     if state == S_DEBOARDING then
-        if pax_no_cur > 0 and now >= nextTimeBoardingCheck then
+        if pax_no_cur > 0 and now >= next_boarding_check_ts then
             pax_no_cur = pax_no_cur - 1
             tls_pax_no[0] = pax_no_cur
             command_once("AirbusFBW/SetWeightAndCG")
-            nextTimeBoardingCheck = now + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
+            next_boarding_check_ts = now + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
 
         if pax_no_cur == 0 then
             state = S_IDLE
-            close_doors(CLOSE_DOORS_DEBOARDING)
-            playChimeSound(false)
-            if post_boarding_cmd ~= "" then
-                logMsg("calling post_boarding_cmd: '" .. post_boarding_cmd .. "'")
-                command_once(post_boarding_cmd)
+            close_doors(cfg.close_doors_deboarding)
+            play_chime(false)
+            if cfg.post_boarding_cmd ~= "" then
+                logMsg("calling post_boarding_cmd: '" .. cfg.post_boarding_cmd .. "'")
+                command_once(cfg.post_boarding_cmd)
             end
         end
     end
@@ -1184,19 +1189,19 @@ function TobusStartBoardingCmd()
         set("AirbusFBW/PaxDistrib", clamp(gauss(0.5, 0.1), 0.35, 0.6))
         pax_no_cur = 0
 
-        if USE_SECOND_DOOR or jw1_connected then
-            s_per_pax = s_per_pax_cfg / 2
+        if cfg.use_second_door or jw1_connected then
+            s_per_pax = cfg.s_per_pax / 2
         else
-            s_per_pax = s_per_pax_cfg
+            s_per_pax = cfg.s_per_pax
         end
         log_msg(string.format("Start boarding with %0.1f s/pax", s_per_pax))
 
         state = S_BOARDING
-        nextTimeBoardingCheck = os.time()
+        next_boarding_check_ts = os.time()
         open_doors()
-        if pre_boarding_cmd ~= "" then
-            logMsg("calling pre_boarding_cmd: '" .. pre_boarding_cmd .. "'")
-            command_once(pre_boarding_cmd)
+        if cfg.pre_boarding_cmd ~= "" then
+            logMsg("calling pre_boarding_cmd: '" .. cfg.pre_boarding_cmd .. "'")
+            command_once(cfg.pre_boarding_cmd)
         end
     end
 end
@@ -1207,19 +1212,19 @@ function TobusStartDeboardingCmd()
         pax_no_deboarding = tls_pax_no[0]
         pax_no_cur = pax_no_deboarding
 
-        if USE_SECOND_DOOR or jw1_connected then
-            s_per_pax = s_per_pax_cfg / 2
+        if cfg.use_second_door or jw1_connected then
+            s_per_pax = cfg.s_per_pax / 2
         else
-            s_per_pax = s_per_pax_cfg
+            s_per_pax = cfg.s_per_pax
         end
         log_msg(string.format("Start deboarding with %0.1f s/pax", s_per_pax))
 
         state = S_DEBOARDING
-        nextTimeBoardingCheck = os.time()
+        next_boarding_check_ts = os.time()
         open_doors()
-        if pre_boarding_cmd ~= "" then
-            logMsg("calling pre_boarding_cmd: '" .. pre_boarding_cmd .. "'")
-            command_once(pre_boarding_cmd)
+        if cfg.pre_boarding_cmd ~= "" then
+            logMsg("calling pre_boarding_cmd: '" .. cfg.pre_boarding_cmd .. "'")
+            command_once(cfg.pre_boarding_cmd)
         end
     end
 end
@@ -1235,7 +1240,7 @@ add_macro("TOBUS - Start Boarding", "TobusStartBoardingCmd()")
 create_command("FlyWithLua/TOBUS/start_boarding", "Start Boarding", "TobusStartBoardingCmd()", "", "")
 
 add_macro("TOBUS - Start Deboarding", "TobusStartDeboardingCmd()")
-create_command("FlyWithLua/TOBUS/start_deboarding", "Start Deboarding", "TobusStartDeboardingCmd", "", "")
+create_command("FlyWithLua/TOBUS/start_deboarding", "Start Deboarding", "TobusStartDeboardingCmd()", "", "")
 
 create_command("FlyWithLua/TOBUS/test_cmd", "Test cmd", "TobusTestCmd()", "", "")
 
