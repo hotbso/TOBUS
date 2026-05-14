@@ -3,32 +3,32 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.6.0-b1-hotbso"
+local VERSION = "3.6.0-hotbso"
 
  --http library import
 local socket = require "socket"
 local http = require "socket.http"
+http.TIMEOUT = 4
 local LIP = require("LIP")
 
 local kg2lbs = 2.204622
 local wait_until_speak = 0
 local speak_string
 
-local tls_pax_no    -- dataref_table AirbusFBW/NoPax
-local tank_content_drf -- dataref_table
+local tls_pax_no_drft    -- dataref_table AirbusFBW/NoPax
+local tank_content_drft  -- dataref_table
 
-local units --simbrief
-local operator --simbrief
-local pax_no_tgt -- simbrief, target after several randomizations
-local taxi_fuel_uu -- simbrief, user units
-local cargo_uu -- simbrief, user units
-local mzfw --simbrief
-local mtow --simbrief
-local MAX_PAX_NUMBER = 224
+local units         -- simbrief
+local operator      -- simbrief
+local pax_no_tgt    -- simbrief, target after several randomizations
+local taxi_fuel_uu  -- simbrief, user units
+local cargo_uu      -- simbrief, user units
+local mzfw          -- simbrief
+local mtow          -- simbrief
+local max_pax_no = 224
 
 local fmgs_flight_no = "" -- FMGS flight number
-local tls_flight_no       -- dataref_table for that
-
+local tls_flight_no_drft -- dataref_table for that
 local fmgs_init_ts = 1E20
 local prelim_loadsheet_sent = false
 
@@ -51,7 +51,7 @@ local state = S_IDLE
 local pax_no_cur, pax_no_deboarding,
       next_boarding_check_ts,
       passenger_doors_drft, cargo_doors_drft,
-      is_tobus_window_displayed
+      is_tobus_window_displayed, s_per_pax
 
 -- config values loaded from settings
 local SETTINGS_FILENAME = "/tobus/tobus_settings.ini"
@@ -361,7 +361,17 @@ local function send_loadsheet(ls_content)
             source = ltn12.source.string(payload),
         }
 
-    log_msg(string.format("Hoppie returns: '%s', code: %d", msg, code))
+    if msg == nil then
+        if code == "timeout" then
+            log_msg("Hoppie request timeout (4s limit exceeded)")
+        else
+            log_msg(string.format("Hoppie request failed: %s", tostring(code)))
+        end
+    elseif type(code) == "number" and code >= 400 then
+        log_msg(string.format("Hoppie HTTP error: %d - %s", code, msg or ""))
+    else
+        log_msg(string.format("Hoppie returns: '%s', code: %s", tostring(msg), tostring(code)))
+    end
 end
 
 local function generate_final_loadsheet()
@@ -376,7 +386,7 @@ local function generate_final_loadsheet()
 
     local fob_kg = 0
     for i = 0,8 do
-        fob_kg = fob_kg + tank_content_drf[i]
+        fob_kg = fob_kg + tank_content_drft[i]
     end
 
     local fob_uu
@@ -386,7 +396,7 @@ local function generate_final_loadsheet()
         fob_uu = 100 * math.floor(fob_kg / 100 + 0.35)
     end
 
-    local pax_weight_kg = tls_pax_no[0] * 100 -- hard coded pax weight of 100kg by ToLiss
+    local pax_weight_kg = tls_pax_no_drft[0] * 100 -- hard coded pax weight of 100kg by ToLiss
     local zfw_kg = plane_data.oew + cargo_kg + pax_weight_kg
     local zfw_uu = zfw_kg
     if units == "lbs" then
@@ -419,7 +429,7 @@ local function generate_final_loadsheet()
         zfwcg = zfwcg, -- meaning: ls.zfwcg = zfwcg
         tow = string.format("%0.1f", tow_uu / 1000),
         fob = string.format("%d", fob_uu),
-        pax = string.format("%d", tls_pax_no[0])
+        pax = string.format("%d", tls_pax_no_drft[0])
     }
 
     if zfw_uu > mzfw or tow_uu > mtow then
@@ -589,7 +599,7 @@ end
 
 local function deboard_instantly()
     unload_cargo()
-    tls_pax_no[0] = 0
+    tls_pax_no_drft[0] = 0
     state = S_IDLE
     play_chime(false)
     command_once("AirbusFBW/SetWeightAndCG")
@@ -721,20 +731,20 @@ local function fetch_sb()
 
     local max_pax = get("sbh/max_passengers")
     log_msg(string.format("max_pax: '%s'", max_pax))
-    MAX_PAX_NUMBER = tonumber(max_pax)
-    if MY_PLANE_ICAO == "A319" and MAX_PAX_NUMBER == 160 then
+    max_pax_no = tonumber(max_pax)
+    if MY_PLANE_ICAO == "A319" and max_pax_no == 160 then
         plane_data = plane_db["A319_160"]
         log_msg("A319 with MAX_PAX_NUMBER 160 variant loaded")
     end
 
-    if MAX_PAX_NUMBER ~= plane_data.max_pax then
-        log_msg(string.format("max. pax no mismatch: ofp: %d config: %d", MAX_PAX_NUMBER, plane_data.max_pax))
+    if max_pax_no ~= plane_data.max_pax then
+        log_msg(string.format("max. pax no mismatch: ofp: %d config: %d", max_pax_no, plane_data.max_pax))
     end
 
     if cfg.randomize_px_no then
         local f = clamp(gauss(1.0, 0.025), 0.96, 1.04)
 	    pax_no_tgt = math.floor(pax_no_tgt * f + 0.5)
-        if pax_no_tgt > MAX_PAX_NUMBER then pax_no_tgt = MAX_PAX_NUMBER end
+        if pax_no_tgt > max_pax_no then pax_no_tgt = max_pax_no end
         log_msg(string.format("randomized pax_no_tgt: %d", pax_no_tgt))
     end
 
@@ -743,7 +753,7 @@ local function fetch_sb()
 end
 
 local function delayed_init()
-    if tls_pax_no ~= nil then return end
+    if tls_pax_no_drft ~= nil then return end
 
     local plane_icao = get("sim/aircraft/view/acf_ICAO")
     local i0 = string.find(plane_icao, "\0")
@@ -753,12 +763,12 @@ local function delayed_init()
         MY_PLANE_ICAO = plane_icao
     end
 
-    tls_flight_no = dataref_table("toliss_airbus/init/flight_no")
+    tls_flight_no_drft = dataref_table("toliss_airbus/init/flight_no")
 
-    tls_pax_no = dataref_table("AirbusFBW/NoPax")
+    tls_pax_no_drft = dataref_table("AirbusFBW/NoPax")
     passenger_doors_drft = dataref_table("AirbusFBW/PaxDoorModeArray")
     cargo_doors_drft = dataref_table("AirbusFBW/CargoDoorModeArray")
-    tank_content_drf = dataref_table("toliss_airbus/fuelTankContent_kgs")
+    tank_content_drft = dataref_table("toliss_airbus/fuelTankContent_kgs")
 
     if MY_PLANE_ICAO == "A21N" and get("AirbusFBW/A321ExitConfig") == 3 then    -- no door 3
         plane_data = plane_db["A21N_200"]
@@ -768,9 +778,9 @@ local function delayed_init()
         log_msg(MY_PLANE_ICAO .. " variant loaded")
     end
 
-    MAX_PAX_NUMBER = plane_data.max_pax
+    max_pax_no = plane_data.max_pax
 
-    log_msg(string.format("tobus: plane: '%s', MAX_PAX_NUMBER: %d", MY_PLANE_ICAO, MAX_PAX_NUMBER))
+    log_msg(string.format("tobus: plane: '%s', MAX_PAX_NUMBER: %d", MY_PLANE_ICAO, max_pax_no))
 
     reset()
 end
@@ -784,7 +794,7 @@ function TobusWindowCb(tobus_window, x, y)
     end
 
     if state == S_SB_LOADED then
-        local changed, val = imgui.SliderInt("Passengers number", pax_no_tgt, 0, MAX_PAX_NUMBER, "Value: %d")
+        local changed, val = imgui.SliderInt("Passengers number", pax_no_tgt, 0, max_pax_no, "Value: %d")
 
         if changed then
             pax_no_tgt = val
@@ -1047,7 +1057,7 @@ function TobusOften()
     end
 
     -- check if FMGS flight_no was changed
-    local fn  = tls_flight_no[0]
+    local fn  = tls_flight_no_drft[0]
     if fmgs_flight_no ~= fn then    -- change
         if fn == "" then -- FMGS reset or fn cleared
             log_msg("FMGS reset")
@@ -1126,7 +1136,7 @@ function TobusFrame()
     if state == S_BOARDING then
         if pax_no_cur < pax_no_tgt and now >= next_boarding_check_ts then
             pax_no_cur = pax_no_cur + 1
-            tls_pax_no[0] = pax_no_cur
+            tls_pax_no_drft[0] = pax_no_cur
             command_once("AirbusFBW/SetWeightAndCG")
             -- accumulated boarding time has a standard deviation ~sqrt(pax_no) hence we clamp on the high side
             next_boarding_check_ts = now + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
@@ -1149,7 +1159,7 @@ function TobusFrame()
     if state == S_DEBOARDING then
         if pax_no_cur > 0 and now >= next_boarding_check_ts then
             pax_no_cur = pax_no_cur - 1
-            tls_pax_no[0] = pax_no_cur
+            tls_pax_no_drft[0] = pax_no_cur
             command_once("AirbusFBW/SetWeightAndCG")
             next_boarding_check_ts = now + s_per_pax * clamp(gauss(1.0, 0.2), 0.8, 1.15)
         end
@@ -1209,7 +1219,7 @@ end
 function TobusStartDeboardingCmd()
     if state == S_BOARDED then
         unload_cargo()
-        pax_no_deboarding = tls_pax_no[0]
+        pax_no_deboarding = tls_pax_no_drft[0]
         pax_no_cur = pax_no_deboarding
 
         if cfg.use_second_door or jw1_connected then
