@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.6.0-hotbso"
+local VERSION = "3.7.0-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -22,7 +22,10 @@ local units         -- simbrief
 local operator      -- simbrief
 local pax_no_tgt    -- simbrief, target after several randomizations
 local taxi_fuel_uu  -- simbrief, user units
+local block_fuel_uu -- simbrief, user units
+local block_fuel_kg -- simbrief, kg, for loadsheet calculation
 local cargo_uu      -- simbrief, user units
+local cargo_kg      -- simbrief, kg, for loadsheet calculation
 local mzfw          -- simbrief
 local mtow          -- simbrief
 local max_pax_no = 224
@@ -31,6 +34,7 @@ local fmgs_flight_no = "" -- FMGS flight number
 local tls_flight_no_drft -- dataref_table for that
 local fmgs_init_ts = 1E20
 local prelim_loadsheet_sent = false
+local hoppie_cpdlc
 
 -- delayed "boarding completed" processing
 local boarding_completed_ts = 1E20
@@ -277,10 +281,7 @@ local function tab_interpolate(pax_tab, zfwcg_tab, pax_no)
 end
 
 -- get the ZFWCG
-local function get_zfwcg(cg_data)
-    local pax_distrib = get("AirbusFBW/PaxDistrib")
-    local pax_no = get("AirbusFBW/NoPax")
-
+local function get_zfwcg(cg_data, pax_distrib, pax_no)
     local zfwcg_050 = tab_interpolate(cg_data.pax_tab, cg_data.zfwcg_050, pax_no)
 
     local zfwcg
@@ -333,7 +334,7 @@ local function send_loadsheet(ls_content)
     ls_content = ls_content:gsub("\n", "%%0A")
 
     local payload
-    if cfg.hoppie_cpdlc then
+    if hoppie_cpdlc then
         payload = string.format("logon=%s&from=%s&to=%s&type=%s&packet=%s",
             cfg.hoppie_logon,
             operator .. "OPS",
@@ -396,7 +397,8 @@ local function generate_final_loadsheet()
         fob_uu = 100 * math.floor(fob_kg / 100 + 0.35)
     end
 
-    local pax_weight_kg = tls_pax_no_drft[0] * 100 -- hard coded pax weight of 100kg by ToLiss
+    local pax_no = tls_pax_no_drft[0]
+    local pax_weight_kg = pax_no * 100 -- hard coded pax weight of 100kg by ToLiss
     local zfw_kg = plane_data.oew + cargo_kg + pax_weight_kg
     local zfw_uu = zfw_kg
     if units == "lbs" then
@@ -411,8 +413,8 @@ local function generate_final_loadsheet()
     local zfwcg = "EFB"
     local cg_data = plane_data.cg_data
     if cg_data ~= nil then
-        local pn, pd, zfwcg_pax
-        pn, pd, zfwcg_pax = get_zfwcg(cg_data)
+        local pax_distrib = get("AirbusFBW/PaxDistrib")
+        local pn, pd, zfwcg_pax = get_zfwcg(cg_data, pax_distrib, pax_no)
 
         -- Calculate ZFWCG with cargo
         local zfwcg_final = calculate_cargo_zfwcg(zfwcg_pax, pax_weight_kg, cargo_fwd, cargo_aft, plane_data.oew)
@@ -462,17 +464,27 @@ local function generate_prelim_loadsheet()
         return
     end
 
-    local cargo_kg = math.ceil(get("AirbusFBW/FwdCargo") + get("AirbusFBW/AftCargo"))
+    local pax_weight_kg = pax_no_tgt * 100 -- hard coded pax weight of 100kg by ToLiss
+    local zfw_kg = plane_data.oew + cargo_kg + pax_weight_kg
 
-    local block_fuel_kg = get("toliss_airbus/init/BlockFuel")
-    local zfw_kg = plane_data.oew + cargo_kg + pax_no_tgt * 100 -- hard coded pax weight of 100kg by ToLiss
-    local zfwcg = get("toliss_airbus/init/ZFWCG")
+    local zfwcg = "EFB"
+    local cg_data = plane_data.cg_data
+    if cg_data ~= nil then
+        local pn, pd, zfwcg_pax = get_zfwcg(cg_data, 0.5, pax_no_tgt)
 
-    local block_fuel_uu
+        -- Calculate ZFWCG with cargo
+        local zfwcg_prelim = calculate_cargo_zfwcg(zfwcg_pax, pax_weight_kg, cargo_kg / 2, cargo_kg / 2, plane_data.oew)
+
+        log_msg(string.format("get_zfwcg: %s, distrib: %0.1f, pax_no: %d, zfwcg_pax: %0.1f, zfwcg_prelim: %0.1f",
+                               plane_data.cfg, pd, pn, zfwcg_pax, zfwcg_prelim))
+        zfwcg = string.format("%0.1f", zfwcg_prelim)
+    end
+
+    local block_fuel_uu_ls
     if units == "lbs" then
-        block_fuel_uu = 100 * math.floor(block_fuel_kg * kg2lbs / 100 + 0.35)    -- conservative rounding
+        block_fuel_uu_ls = 100 * math.floor(block_fuel_kg * kg2lbs / 100 + 0.35)    -- conservative rounding
     else
-        block_fuel_uu = 100 * math.floor(block_fuel_kg / 100 + 0.35)
+        block_fuel_uu_ls = 100 * math.floor(block_fuel_kg / 100 + 0.35)
     end
 
     local zfw_uu = zfw_kg
@@ -480,18 +492,18 @@ local function generate_prelim_loadsheet()
         zfw_uu = zfw_kg * kg2lbs
     end
 
-    log_msg(string.format("block_fuel_kg: %d, block_fuel_uu: %d, zfw_kg: %d, zfw_uu: %d",
-            block_fuel_kg, block_fuel_uu, zfw_kg, zfw_uu))
+    log_msg(string.format("block_fuel_kg: %d, block_fuel_uu_ls: %d, zfw_kg: %d, zfw_uu: %d",
+            block_fuel_kg, block_fuel_uu_ls, zfw_kg, zfw_uu))
 
-    local tow_uu = zfw_uu + block_fuel_uu - taxi_fuel_uu
+    local tow_uu = zfw_uu + block_fuel_uu_ls - taxi_fuel_uu
 
     local ls = {    -- in user units
         title = "Prelim",
         -- gwcg = string.format("%0.1f", get("AirbusFBW/CGLocationPercent")),
         zfw = string.format("%0.1f", zfw_uu / 1000),
-        zfwcg = string.format("%0.1f", zfwcg), -- meaning: ls.zfwcg = zfwcg
+        zfwcg = zfwcg, -- meaning: ls.zfwcg = zfwcg
         tow = string.format("%0.1f", tow_uu / 1000),
-        fob = string.format("%d", block_fuel_uu),
+        fob = string.format("%d", block_fuel_uu_ls),
         pax = string.format("%d", pax_no_tgt)
     }
 
@@ -571,9 +583,6 @@ local function play_chime(boarding)
 end
 
 local function load_cargo()
-    local cargo_kg = cargo_uu
-    if units == "lbs" then cargo_kg = cargo_uu / kg2lbs end
-
     local cargo_kg_2 = math.floor(cargo_kg / 2)
     log_msg("cargo loaded " .. cargo_kg .. "kg")
     set("AirbusFBW/FwdCargo", cargo_kg_2)
@@ -680,6 +689,12 @@ local function read_settings()
 
     cfg.pre_boarding_cmd = settings.cmdHooks.preBoarding or ""
     cfg.post_boarding_cmd = settings.cmdHooks.postBoarding_cmd or ""
+
+    hoppie_cpdlc = cfg.hoppie_cpdlc
+    if MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A20N" then
+        hoppie_cpdlc = false    -- since v1.3 A320/A20N always accepts telex
+        log_msg("A320/A20N detected, using telex for Hoppie")
+    end
 end
 
 local function save_settings()
@@ -724,8 +739,21 @@ local function fetch_sb()
     pax_no_tgt = tonumber(get("sbh/pax_count"))
     units = get("sbh/units")
     operator = get("sbh/icao_airline")
+    block_fuel_uu = tonumber(get("sbh/fuel_plan_ramp"))
+    if units == "lbs" then
+        block_fuel_kg = block_fuel_uu * lbs2kg
+    else
+        block_fuel_kg = block_fuel_uu
+    end
+
     taxi_fuel_uu = tonumber(get("sbh/fuel_taxi"))
     cargo_uu = tonumber(get("sbh/freight"))
+    if units == "lbs" then
+        cargo_kg = cargo_uu / kg2lbs
+    else
+        cargo_kg = cargo_uu
+    end
+
     mzfw = tonumber(get("sbh/max_zfw"))
     mtow = tonumber(get("sbh/max_tow"))
 
