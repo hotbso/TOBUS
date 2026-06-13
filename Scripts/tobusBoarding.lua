@@ -3,7 +3,7 @@ if PLANE_ICAO == "A319" or PLANE_ICAO == "A20N" or PLANE_ICAO == "A320" or PLANE
 then
 
 local MY_PLANE_ICAO = PLANE_ICAO    -- may be stale now for A321 / A21N
-local VERSION = "3.7.0-hotbso"
+local VERSION = "3.7.1-hotbso"
 
  --http library import
 local socket = require "socket"
@@ -691,8 +691,9 @@ local function read_settings()
     cfg.post_boarding_cmd = settings.cmdHooks.postBoarding_cmd or ""
 
     hoppie_cpdlc = cfg.hoppie_cpdlc
-    if MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A20N" then
-        hoppie_cpdlc = false    -- since v1.3 A320/A20N always accepts telex
+    if MY_PLANE_ICAO == "A320" or MY_PLANE_ICAO == "A20N"
+            or MY_PLANE_ICAO == "A321" or MY_PLANE_ICAO == "A21N" then
+        hoppie_cpdlc = false    -- updated models always accepts telex
         log_msg("A320/A20N detected, using telex for Hoppie")
     end
 end
@@ -741,7 +742,7 @@ local function fetch_sb()
     operator = get("sbh/icao_airline")
     block_fuel_uu = tonumber(get("sbh/fuel_plan_ramp"))
     if units == "lbs" then
-        block_fuel_kg = block_fuel_uu * lbs2kg
+        block_fuel_kg = block_fuel_uu / kg2lbs
     else
         block_fuel_kg = block_fuel_uu
     end
